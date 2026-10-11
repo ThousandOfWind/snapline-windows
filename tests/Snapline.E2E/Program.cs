@@ -41,7 +41,7 @@ internal static class Program
             var shelf = Window("Snapline");
             var element = AutomationElement.FromHandle(shelf);
             Check(Find(element, "截图，挂在这里。\n按 Ctrl+Alt+S 截图，或从托盘添加图片。") != null, "empty shelf instructions rendered via UI Automation");
-            Check(Invoke(element, "收起 ↑"), "real UI hide button is invokable");
+            Check(Invoke(element, "收起"), "real UI hide button is invokable");
             Wait(() => Window("Snapline") == IntPtr.Zero, "hide removes native window from visible desktop");
             Wait(() => Window("Snapline Handle") != IntPtr.Zero, "hidden shelf leaves visible recovery handle");
             using (var relaunch = Process.Start(new ProcessStartInfo(exe))!)
@@ -142,7 +142,7 @@ internal static class Program
             Native.Click((int)(recoveryRect.Left + recoveryRect.Width / 2), (int)(recoveryRect.Top + recoveryRect.Height / 2));
             Wait(() => Window("Snapline") != IntPtr.Zero, "physical handle click restores shelf after capture");
             Check(Window("Snapline Handle") == IntPtr.Zero, "recovery handle hides when shelf opens");
-            Check(Invoke(AutomationElement.FromHandle(Window("Snapline")), "＋ 截图"), "toolbar capture button invokes real capture workflow");
+            Check(Invoke(AutomationElement.FromHandle(Window("Snapline")), "截图"), "toolbar capture button invokes real capture workflow");
             Wait(() => Window("Snapline Capture") != IntPtr.Zero, "toolbar capture opens selector");
             var toolbarCapture = Native.Bounds(Window("Snapline Capture"));
             Native.Drag(toolbarCapture.Left + 160, toolbarCapture.Top + 140, toolbarCapture.Left + 400, toolbarCapture.Top + 300);
@@ -160,7 +160,7 @@ internal static class Program
             {
                 element = AutomationElement.FromHandle(Window("Snapline"));
                 var buttons = element.FindAll(TreeScope.Descendants, new PropertyCondition(AutomationElement.ControlTypeProperty, ControlType.Button));
-                removeButtons = buttons.Cast<AutomationElement>().Where(b => b.Current.Name.Trim() == "×").ToArray();
+                removeButtons = buttons.Cast<AutomationElement>().Where(b => b.Current.AutomationId == "RemoveCard").ToArray();
                 return removeButtons.Length == 2;
             }, "both cards have remove controls");
             ((InvokePattern)removeButtons[0].GetCurrentPattern(InvokePattern.Pattern)).Invoke();
@@ -223,6 +223,22 @@ internal static class Program
             File.Delete(Items().Last());
             Wait(() => Items().Length == 1, "external fixture deletion prunes missing reference");
             Check(Items().Single() == remaining, "remaining record unchanged after clipboard tests");
+
+            Native.Message(app.Id, "Snapline.Messages", 0x8001, 0);
+            Wait(() => Window("Snapline") != IntPtr.Zero, "shelf opens for image drag visual check");
+            Thread.Sleep(1200);
+            var dragLabel = Find(AutomationElement.FromHandle(Window("Snapline")), Path.GetFileName(remaining))!;
+            var dragRect = dragLabel.Current.BoundingRectangle;
+            Native.BeginDrag((int)(dragRect.Left + dragRect.Width / 2), (int)(dragRect.Top + dragRect.Height / 2) - 45);
+            Wait(() => Window("Snapline Drag Preview") != IntPtr.Zero, "physical image drag displays floating photo preview");
+            var previewBefore = Native.Bounds(Window("Snapline Drag Preview"));
+            Native.Move(Native.Cursor.X + 80, Native.Cursor.Y + 60);
+            Wait(() => Native.Bounds(Window("Snapline Drag Preview")).Left != previewBefore.Left, "drag thumbnail follows pointer during native drag loop");
+            Native.Key(0x1B); Native.ReleaseLeftButton();
+            Wait(() => Window("Snapline Drag Preview") == IntPtr.Zero, "Esc cancels native drag and closes thumbnail");
+            Check(File.Exists(remaining) && Items().Single() == remaining, "cancelled image drag preserves library and source file");
+            Wait(() => Find(AutomationElement.FromHandle(Window("Snapline")), Path.GetFileName(remaining))?.Current.IsOffscreen == false,
+                "source thumbnail remains usable after native drag cancel");
 
             Native.Message(app.Id, "Snapline.Messages", 0x8001, 0);
             Wait(() => Window("Snapline") != IntPtr.Zero, "shelf visible before component drag");
@@ -414,6 +430,13 @@ internal static class Native
     internal static void Key(byte key) { keybd_event(key, 0, 0, UIntPtr.Zero); keybd_event(key, 0, 2, UIntPtr.Zero); }
     internal static void Click(int x, int y) { Move(x, y); Thread.Sleep(50); mouse_event(2, 0, 0, 0, UIntPtr.Zero); Thread.Sleep(60); mouse_event(4, 0, 0, 0, UIntPtr.Zero); }
     internal static void DoubleClick(int x, int y) { Click(x, y); Thread.Sleep(70); Click(x, y); }
+    internal static void BeginDrag(int x, int y)
+    {
+        Move(x, y); Thread.Sleep(80); mouse_event(2, 0, 0, 0, UIntPtr.Zero);
+        for (var step = 1; step <= 10; step++) { Move(x + step * 5, y + step * 6); Thread.Sleep(25); }
+    }
+    internal static void ReleaseLeftButton() => mouse_event(4, 0, 0, 0, UIntPtr.Zero);
+
     internal static void Drag(int x, int y, int targetX, int targetY)
     {
         Move(x, y); Thread.Sleep(100); mouse_event(2, 0, 0, 0, UIntPtr.Zero);

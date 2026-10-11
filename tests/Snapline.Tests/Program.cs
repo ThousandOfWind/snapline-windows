@@ -39,18 +39,34 @@ try
     Check(restored.Items.Count == 1, "restore ignores duplicate and missing files");
     var store = new SettingsStore(Path.Combine(directory, "data"));
     Check(!store.Load().WatchClipboard, "clipboard is opt-in");
+    var springStart = SpringCurve.Sample(4, 10, 0, 0, 16, 0.28);
+    Check(Math.Abs(springStart.Position - 4) < 1e-8 && Math.Abs(springStart.Velocity - 10) < 1e-8, "spring preserves initial position and momentum");
+    var firstSwing = SpringCurve.Sample(0, 72, 0, 0.1, 16, 0.28).Position;
+    var reverseSwing = SpringCurve.Sample(0, 72, 0, 0.32, 16, 0.28).Position;
+    Check(firstSwing > 2 && reverseSwing < 0, "spring pendulum swings through equilibrium instead of staying tilted");
+    Check(Math.Abs(SpringCurve.Sample(0, 72, 0, 2, 16, 0.28).Position) < 0.01, "spring motion decays instead of looping indefinitely");
+    var retarget = SpringCurve.Sample(0, 72, 0, 0.1, 16, 0.28);
+    var resumed = SpringCurve.Sample(retarget.Position, retarget.Velocity, 1, 0, 16, 0.28);
+    Check(resumed == retarget, "retarget starts from current state without jumping");
+    var rejectedSpring = false;
+    try { SpringCurve.Sample(double.NaN, 0, 0, 0, 16, 0.28); } catch (ArgumentOutOfRangeException) { rejectedSpring = true; }
+    Check(rejectedSpring, "invalid spring input is rejected");
     Check(PlacementMath.Offset(0.5, 400) == 200, "normalized position restores to available travel");
     Check(PlacementMath.Offset(2, 400) == 400 && PlacementMath.Offset(-1, 400) == 0, "placement clamps offscreen ratios");
     Check(PlacementMath.Offset(double.NaN, 400) == 0 && PlacementMath.Offset(double.PositiveInfinity, 400) == 0, "invalid coordinates recover safely");
     Check(PlacementMath.Offset(0.5, -20) == 0, "oversized component remains anchored on small monitor");
     Check(PlacementMath.Relative(200, 400) == 0.5 && PlacementMath.Relative(200, 0) == 0, "relative position handles zero travel");
+    Check(!store.Load().ReduceMotion, "motion preference defaults compatibly");
+    Check(!store.Load().OverrideSystemAnimations, "system animation preference is respected by default");
     Check(store.Load().ShelfPosition == null && store.Load().HandlePosition == null, "older settings retain default component positions");
-    var preferences = new Preferences { WatchClipboard = true, Items = [a], WatchFolders = [directory],
+    var preferences = new Preferences { WatchClipboard = true, ReduceMotion = true, OverrideSystemAnimations = true, Items = [a], WatchFolders = [directory],
         ShelfPosition = new WindowPosition { Screen = "test-monitor", X = 0.25, Y = 0.5 },
         HandlePosition = new WindowPosition { Screen = "test-monitor", X = 0.75, Y = 0.125 } };
     store.Save(preferences);
     var loaded = store.Load();
     Check(loaded.WatchClipboard && loaded.Items.Single() == a && loaded.WatchFolders.Single() == directory, "settings round trip");
+    Check(loaded.ReduceMotion, "reduced motion preference persists");
+    Check(loaded.OverrideSystemAnimations, "explicit application animation override persists");
     Check(loaded.ShelfPosition?.X == 0.25 && loaded.ShelfPosition.Y == 0.5 && loaded.HandlePosition?.Y == 0.125, "independent component positions persist");
     Check(!File.Exists(store.SettingsPath + ".tmp"), "atomic settings save leaves no temporary file");
     File.WriteAllText(store.SettingsPath, "{broken json");

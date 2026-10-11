@@ -52,6 +52,8 @@ internal sealed class SnaplineApplication : IDisposable
         this.e2e = e2e;
         store = new SettingsStore(directory);
         settings = store.Load();
+        Motion.Reduced = settings.ReduceMotion;
+        Motion.OverrideSystem = settings.OverrideSystemAnimations;
         library = new ImageLibrary(settings.Capacity, settings.Items);
         shelf = new ShelfWindow(this);
         handle = new HandleWindow(() => Reveal(true), BeginComponentMove, () => EndComponentMove(isShelf: false));
@@ -164,6 +166,22 @@ internal sealed class SnaplineApplication : IDisposable
         var peek = new Forms.ToolStripMenuItem("新图片短暂展开") { Checked = settings.PeekOnNew, CheckOnClick = true };
         peek.CheckedChanged += (_, _) => { settings.PeekOnNew = peek.Checked; Save(); };
         menu.Items.Add(peek);
+        var reduceMotion = new Forms.ToolStripMenuItem("减少动画") { Checked = settings.ReduceMotion, CheckOnClick = true };
+        reduceMotion.CheckedChanged += (_, _) =>
+        {
+            settings.ReduceMotion = reduceMotion.Checked; Motion.Reduced = reduceMotion.Checked;
+            shelf.FinishMotion(); handle.FinishMotion(); Save();
+            if (!shelf.IsRevealed) shelf.Hide();
+        };
+        menu.Items.Add(reduceMotion);
+        var forceAnimation = new Forms.ToolStripMenuItem("启用动画（即使系统已关闭）") { Checked = settings.OverrideSystemAnimations, CheckOnClick = true };
+        forceAnimation.CheckedChanged += (_, _) =>
+        {
+            settings.OverrideSystemAnimations = forceAnimation.Checked; Motion.OverrideSystem = forceAnimation.Checked;
+            shelf.FinishMotion(); handle.FinishMotion(); Save();
+            if (!shelf.IsRevealed) shelf.Hide();
+        };
+        menu.Items.Add(forceAnimation);
         menu.Items.Add("添加监听目录…", null, (_, _) => ChooseFolder());
         menu.Items.Add("管理监听目录…", null, (_, _) => ManageFolders());
         menu.Items.Add("重置组件位置", null, (_, _) => ResetComponentPositions());
@@ -171,7 +189,7 @@ internal sealed class SnaplineApplication : IDisposable
         menu.Items.Add("从栏中移除全部（不删除文件）", null, (_, _) => { library.Clear(); Changed(); });
         menu.Items.Add(new Forms.ToolStripSeparator());
         menu.Items.Add("关于 Snapline", null, (_, _) => MessageBox.Show(
-            "Snapline 0.1.3 · Windows 10/11\n\nCtrl+Alt+T：显示 / 隐藏\nCtrl+Alt+S：区域截图\n拖动左侧 ⠿ SNAPLINE 或收起的小入口可移动组件\n单击复制 · 双击预览 · 拖拽发送文件\n右键菜单：另存为、打开、画图编辑、移除\n\n数据仅保存在本机，无网络、无分析。\n灵感来源：alejandrobujan/tendedero (MIT)。\n本项目使用独立名称和原创图标，与原作者无关联。", "关于 Snapline"));
+            "Snapline 0.1.7 · Windows 10/11\n\nCtrl+Alt+T：显示 / 隐藏\nCtrl+Alt+S：区域截图\n拖动左侧“Snapline / 拖动移动”或收起的小入口可移动组件\n单击复制 · 双击预览 · 拖拽发送文件\n右键菜单：另存为、打开、画图编辑、移除\n\n数据仅保存在本机，无网络、无分析。\n灵感来源：alejandrobujan/tendedero (MIT)。\n本项目使用独立名称和原创图标，与原作者无关联。", "关于 Snapline"));
         menu.Items.Add("退出", null, (_, _) => app.Shutdown());
         var executable = Environment.ProcessPath!;
         tray = new Forms.NotifyIcon
@@ -315,7 +333,7 @@ internal sealed class SnaplineApplication : IDisposable
         else settings.HandlePosition = WindowPlacement.Remember(handle);
         busy = false;
         Save();
-        shelf.ShowStatus("位置已保存 · 拖动左侧 ⠿ 可移动 · 托盘可重置位置");
+        shelf.ShowStatus("位置已保存 · 拖动左侧截图栏标签可移动 · 托盘可重置位置");
     }
 
     private void ResetComponentPositions()
@@ -403,6 +421,7 @@ internal sealed class SnaplineApplication : IDisposable
             Clipboard.SetDataObject(data, true);
             ownClipboardSequence = Native.GetClipboardSequenceNumber();
             shelf.ShowStatus("已复制图片");
+            shelf.Copied(path);
         }
         catch (Exception e) when (e is ExternalException or IOException or NotSupportedException)
         { shelf.ShowStatus("剪贴板忙碌，请重试"); }
@@ -417,13 +436,28 @@ internal sealed class SnaplineApplication : IDisposable
 
     internal void Drag(FrameworkElement source, string path)
     {
-        busy = true;
+        if (busy || capturing) return;
+        busy = true; pinned = true;
         try
         {
+            using var visual = new DragVisualSession(source, ImageIO.Load(path));
             var data = new DataObject(DataFormats.FileDrop, new[] { path });
-            // Copy only: exporting never silently deletes the original capture.
-            DragDrop.DoDragDrop(source, data, DragDropEffects.Copy);
+            GiveFeedbackEventHandler feedback = (_, e) =>
+            {
+                visual.Preview.Feedback(e.Effects); visual.Preview.PlaceAt(Native.Cursor);
+                e.UseDefaultCursors = true; // Preserve Windows' Copy/No-drop affordance.
+            };
+            source.GiveFeedback += feedback;
+            try
+            {
+                // Copy only: exporting never silently deletes the original capture.
+                var effect = DragDrop.DoDragDrop(source, data, DragDropEffects.Copy);
+                shelf.ShowStatus((effect & DragDropEffects.Copy) != 0 ? "图片已复制到目标，原图仍保留" : "已取消拖拽，图片仍在栏中");
+            }
+            finally { source.GiveFeedback -= feedback; }
         }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException or NotSupportedException or ExternalException)
+        { shelf.ShowStatus("拖拽未完成，图片仍在栏中"); }
         finally { busy = false; }
     }
 

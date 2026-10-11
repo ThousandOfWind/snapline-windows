@@ -5,9 +5,7 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Media;
-using System.Windows.Media.Animation;
 using System.Windows.Media.Effects;
-using System.Windows.Shapes;
 using System.Windows.Threading;
 using Forms = System.Windows.Forms;
 using Snapline.Core;
@@ -23,7 +21,13 @@ internal sealed class ShelfWindow : Window
     private readonly ScrollViewer scroll;
     private readonly DispatcherTimer statusTimer = new() { Interval = TimeSpan.FromSeconds(2) };
     private readonly Grid root;
-    private readonly Path rope;
+    private readonly Dictionary<string, FrameworkElement> cardViews = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, HangingCard> hanging = new(StringComparer.OrdinalIgnoreCase);
+    private readonly HashSet<string> pendingEntry = new(StringComparer.OrdinalIgnoreCase);
+    private int removalGeneration;
+    private bool removing;
+    private bool cardDragging;
+    private string[]? deferredPaths;
     private bool closing;
     private double scale = 1;
     private int visibilityGeneration;
@@ -50,12 +54,18 @@ internal sealed class ShelfWindow : Window
         content.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
         var toolbar = new DockPanel { LastChildFill = true };
         var actions = new StackPanel { Orientation = Orientation.Horizontal };
-        actions.Children.Add(Button("＋ 截图", "区域截图 · Ctrl+Alt+S", () => _ = controller.CaptureAsync()));
-        actions.Children.Add(Button("收起 ↑", "隐藏截图栏 · Ctrl+Alt+T", controller.Hide));
+        actions.Children.Add(PaperStyle.Action("截图", PaperStyle.Capture, "区域截图 · Ctrl+Alt+S", true, () => _ = controller.CaptureAsync()));
+        actions.Children.Add(PaperStyle.Action("收起", PaperStyle.Fold, "隐藏截图栏 · Ctrl+Alt+T", false, controller.Hide));
         DockPanel.SetDock(actions, Dock.Right);
         toolbar.Children.Add(actions);
-        var brand = new TextBlock { Text = "⠿  SNAPLINE", Tag = "SnaplineGrip", ToolTip = "按住拖动截图栏位置（不是图片卡片）", Background = Brushes.Transparent, Foreground = Brush("#75E5C2"), FontWeight = FontWeights.SemiBold, FontSize = 14, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(4, 0, 24, 0),
-            Effect = new DropShadowEffect { Color = Colors.Black, BlurRadius = 4, ShadowDepth = 1, Opacity = 0.9 } };
+        var identity = new StackPanel { Orientation = Orientation.Horizontal };
+        identity.Children.Add(Brand.Icon(30));
+        identity.Children.Add(new TextBlock { Text = "Snapline", Foreground = Brush("#466C58"), FontWeight = FontWeights.SemiBold,
+            FontSize = 14, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(8, 0, 12, 0) });
+        identity.Children.Add(new TextBlock { Text = "拖动移动", Foreground = Brush("#A9C6BF"), FontSize = 10, VerticalAlignment = VerticalAlignment.Center });
+        var brand = new Border { Child = identity, Tag = "SnaplineGrip", ToolTip = "按住这里拖动截图栏；图片卡片拖动用于分享",
+            Background = Brushes.Transparent, CornerRadius = new CornerRadius(12), Padding = new Thickness(3, 0, 8, 0),
+            VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 20, 0) };
         System.Windows.Automation.AutomationProperties.SetAutomationId(brand, "ShelfDragGrip");
         _ = new ComponentDrag(this, brand, controller.BeginComponentMove, () =>
         {
@@ -70,8 +80,20 @@ internal sealed class ShelfWindow : Window
         content.Children.Add(toolbar);
         var area = new Grid();
         Grid.SetRow(area, 1);
-        rope = new Path { Stroke = Brush("#94AAAD"), StrokeThickness = 1.5, IsHitTestVisible = false };
+        var rope = new System.Windows.Shapes.Path { Stroke = Brush("#8CAA9B"), StrokeThickness = 1.3,
+            IsHitTestVisible = false, Tag = "SnaplineRope" };
         area.Children.Add(rope);
+        area.SizeChanged += (_, _) =>
+        {
+            var width = area.ActualWidth;
+            var geometry = new StreamGeometry();
+            using (var drawing = geometry.Open())
+            {
+                drawing.BeginFigure(new Point(0, 17), false, false);
+                drawing.BezierTo(new Point(width / 3, 29), new Point(width * 2 / 3, 29), new Point(width, 17), true, false);
+            }
+            geometry.Freeze(); rope.Data = geometry;
+        };
         scroll = new ScrollViewer
         {
             Content = cards,
@@ -82,17 +104,6 @@ internal sealed class ShelfWindow : Window
         };
         scroll.PreviewMouseWheel += (_, e) => { scroll.ScrollToHorizontalOffset(scroll.HorizontalOffset - e.Delta); e.Handled = true; };
         area.Children.Add(scroll);
-        area.SizeChanged += (_, _) =>
-        {
-            var w = area.ActualWidth;
-            var geometry = new StreamGeometry();
-            using (var context = geometry.Open())
-            {
-                context.BeginFigure(new Point(0, 12), false, false);
-                context.QuadraticBezierTo(new Point(w / 2, 35), new Point(w, 12), true, false);
-            }
-            geometry.Freeze(); rope.Data = geometry;
-        };
         content.Children.Add(area);
         root.Children.Add(content);
         Content = root;
@@ -130,8 +141,12 @@ internal sealed class ShelfWindow : Window
 
     internal void Refresh(IReadOnlyList<string> paths)
     {
+        if (cardDragging) { deferredPaths = paths.ToArray(); return; }
         var offset = scroll.HorizontalOffset;
+        var existing = new HashSet<string>(cardViews.Keys, StringComparer.OrdinalIgnoreCase);
         cards.Children.Clear();
+        cardViews.Clear(); hanging.Clear();
+        pendingEntry.IntersectWith(paths);
         if (paths.Count == 0)
         {
             cards.Children.Add(new TextBlock
@@ -143,7 +158,22 @@ internal sealed class ShelfWindow : Window
         }
         else foreach (var path in paths.Reverse())
         {
-            if (ImageIO.TryLoad(path, out var image)) cards.Children.Add(CreateCard(path, image!));
+            if (!ImageIO.TryLoad(path, out var image)) continue;
+            var card = CreateCard(path, image!);
+            cardViews[path] = card;
+            cards.Children.Add(card);
+            if (!existing.Contains(path))
+            {
+                pendingEntry.Add(path);
+                if (IsRevealed)
+                {
+                    var motion = hanging[path];
+                    card.Loaded += (_, _) =>
+                    {
+                        if (IsRevealed && pendingEntry.Remove(path)) motion.Hang();
+                    };
+                }
+            }
         }
         scroll.ScrollToHorizontalOffset(offset);
     }
@@ -151,13 +181,19 @@ internal sealed class ShelfWindow : Window
     private FrameworkElement CreateCard(string path, System.Windows.Media.Imaging.BitmapSource image)
     {
         var card = new Grid { Width = 170, Height = 165, Margin = new Thickness(9, 15, 9, 0), ToolTip = System.IO.Path.GetFileName(path), Tag = "SnaplineCard" };
-        var tilt = (StringComparer.OrdinalIgnoreCase.GetHashCode(path) % 45) / 20.0;
-        card.RenderTransform = new RotateTransform(tilt);
-        card.RenderTransformOrigin = new Point(0.5, 0);
+        var peg = PaperStyle.Peg();
+        peg.HorizontalAlignment = HorizontalAlignment.Center;
+        peg.VerticalAlignment = VerticalAlignment.Top;
+        peg.Tag = "SnaplinePeg";
+        var tilt = StableTilt(path);
+        var movement = new HangingCard(card, peg, tilt);
+        hanging[path] = movement;
+        card.MouseEnter += (_, _) => movement.Hover(true);
+        card.MouseLeave += (_, _) => movement.Hover(false);
         var frame = new Border
         {
-            CornerRadius = new CornerRadius(9), Padding = new Thickness(7, 9, 7, 6), Margin = new Thickness(0, 14, 0, 3),
-            Background = Brush("#F1F5F6"), BorderBrush = Brush("#BCC9CE"), BorderThickness = new Thickness(1),
+            CornerRadius = new CornerRadius(12), Padding = new Thickness(6, 6, 6, 5), Margin = new Thickness(0, 14, 0, 3),
+            Background = Brush("#F3FBF8"), BorderBrush = Brush("#D0E1DC"), BorderThickness = new Thickness(1),
             Effect = new DropShadowEffect { BlurRadius = 10, ShadowDepth = 4, Opacity = 0.22 }
         };
         var body = new Grid();
@@ -174,21 +210,19 @@ internal sealed class ShelfWindow : Window
             TextTrimming = TextTrimming.CharacterEllipsis, VerticalAlignment = VerticalAlignment.Center
         };
         Grid.SetRow(name, 1); body.Children.Add(name); frame.Child = body; card.Children.Add(frame);
-        card.Children.Add(new Border
-        {
-            Width = 13, Height = 27, CornerRadius = new CornerRadius(3), Background = Brush("#77D5B7"),
-            BorderBrush = Brush("#224C44"), BorderThickness = new Thickness(1), HorizontalAlignment = HorizontalAlignment.Center,
-            VerticalAlignment = VerticalAlignment.Top, IsHitTestVisible = false,
-            Child = new Border { Height = 2, Margin = new Thickness(2), Background = Brush("#477F70") }
-        });
+        card.Children.Add(peg);
         var remove = new Button
         {
-            Content = "×", Width = 20, Height = 20, FontSize = 15, Padding = new Thickness(0),
-            Background = Brush("#DCE6E7"), BorderThickness = new Thickness(0), Foreground = Brush("#40575A"),
+            Content = PaperStyle.Symbol(PaperStyle.Cross, 7), Width = 22, Height = 22, Padding = new Thickness(5),
+            Background = Brush("#EDF3E9"), BorderThickness = new Thickness(0), Foreground = Brush("#809589"),
+            Cursor = Cursors.Hand, Template = PaperStyle.Template(radius: 11),
             HorizontalAlignment = HorizontalAlignment.Right, VerticalAlignment = VerticalAlignment.Top,
             Margin = new Thickness(0, 14, 0, 0), ToolTip = "从栏中移除（保留文件）"
         };
-        remove.Click += (_, e) => { e.Handled = true; controller.Remove(path); };
+        PaperStyle.AttachHover(remove);
+        System.Windows.Automation.AutomationProperties.SetName(remove, "移除截图");
+        System.Windows.Automation.AutomationProperties.SetAutomationId(remove, "RemoveCard");
+        remove.Click += (_, e) => { e.Handled = true; ReleaseCard(path); };
         card.Children.Add(remove);
         var menu = new ContextMenu();
         AddMenu(menu, "复制图片", () => controller.Copy(path));
@@ -198,35 +232,46 @@ internal sealed class ShelfWindow : Window
         AddMenu(menu, "另存副本…", () => controller.SaveAs(path));
         AddMenu(menu, "在资源管理器中显示", () => SnaplineApplication.RevealFile(path));
         menu.Items.Add(new Separator());
-        AddMenu(menu, "从栏中移除（保留文件）", () => controller.Remove(path));
+        AddMenu(menu, "从栏中移除（保留文件）", () => ReleaseCard(path));
         card.ContextMenu = menu;
 
         Point start = default;
         var dragging = false;
         var doubleClicked = false;
+        var armed = false;
         DispatcherTimer? clickTimer = null;
         card.MouseLeftButtonDown += (_, e) =>
         {
             if (e.OriginalSource is Button || IsButtonAncestor(e.OriginalSource as DependencyObject)) return;
-            start = e.GetPosition(card); dragging = false; doubleClicked = e.ClickCount == 2;
+            start = e.GetPosition(card); dragging = false; armed = true; doubleClicked = e.ClickCount == 2;
+            if (!doubleClicked) card.CaptureMouse();
             if (doubleClicked) { clickTimer?.Stop(); controller.Preview(path); e.Handled = true; }
         };
         card.MouseMove += (_, e) =>
         {
-            if (e.LeftButton != MouseButtonState.Pressed || dragging || IsButtonAncestor(e.OriginalSource as DependencyObject)) return;
+            if (!armed || e.LeftButton != MouseButtonState.Pressed || dragging || IsButtonAncestor(e.OriginalSource as DependencyObject)) return;
             var current = e.GetPosition(card);
             if (Math.Abs(current.X - start.X) < SystemParameters.MinimumHorizontalDragDistance
                 && Math.Abs(current.Y - start.Y) < SystemParameters.MinimumVerticalDragDistance) return;
-            dragging = true; clickTimer?.Stop(); controller.Drag(card, path);
+            dragging = true; armed = false; clickTimer?.Stop(); card.ReleaseMouseCapture();
+            cardDragging = true; movement.SetDragging(true);
+            try { controller.Drag(card, path); }
+            finally
+            {
+                movement.SetDragging(false); cardDragging = false;
+                if (deferredPaths != null) { var paths = deferredPaths; deferredPaths = null; Refresh(paths); }
+            }
         };
         card.MouseLeftButtonUp += (_, e) =>
         {
-            if (dragging || doubleClicked || e.Handled || IsButtonAncestor(e.OriginalSource as DependencyObject)) return;
+            if (!armed || dragging || doubleClicked || e.Handled || IsButtonAncestor(e.OriginalSource as DependencyObject)) return;
+            armed = false; card.ReleaseMouseCapture();
             clickTimer?.Stop();
             clickTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(Forms.SystemInformation.DoubleClickTime) };
             clickTimer.Tick += (_, _) => { clickTimer.Stop(); controller.Copy(path); };
             clickTimer.Start();
         };
+        card.LostMouseCapture += (_, _) => { armed = false; };
         return card;
     }
 
@@ -239,6 +284,7 @@ internal sealed class ShelfWindow : Window
     internal void Reveal(Forms.Screen screen, WindowPosition? saved = null)
     {
         visibilityGeneration++;
+        var opening = !IsRevealed;
         CurrentScreen = screen = WindowPlacement.Screen(saved, screen);
         scale = Native.Scale(screen);
         Left = screen.Bounds.Left / scale;
@@ -247,10 +293,8 @@ internal sealed class ShelfWindow : Window
         Width = saved == null ? screen.Bounds.Width / scale : Math.Min(960, screen.WorkingArea.Width / scale);
         IsRevealed = true;
         if (!IsVisible) Show();
-        // Always reset the transform, including a reveal arriving mid-conceal.
-        // An HWND can otherwise be visible with all content still animated above the screen.
-        slide.BeginAnimation(TranslateTransform.YProperty, null);
-        slide.Y = 0;
+        // Reset cancelled clocks before entry; no movement ever exceeds ten DIPs.
+        Motion.Reset(root, slide);
         // Position in physical pixels to handle negative monitor origins and mixed DPI correctly.
         var width = (int)Math.Round(Width * scale);
         var height = (int)Math.Round(Height * scale);
@@ -258,22 +302,27 @@ internal sealed class ShelfWindow : Window
             : WindowPlacement.Restore(saved, screen.WorkingArea, width, height);
         Native.Place(this, position.X, position.Y, width, height);
         scroll.ScrollToLeftEnd();
+        if (opening) Motion.Enter(root, slide);
+        var delay = 0;
+        foreach (var path in pendingEntry.ToArray())
+        {
+            if (hanging.TryGetValue(path, out var motion)) { motion.Hang(Math.Min(delay, 100)); delay += 25; }
+            pendingEntry.Remove(path);
+        }
     }
 
     internal void Conceal()
     {
         if (!IsRevealed) return;
+        removalGeneration++; removing = false;
         IsRevealed = false;
         var generation = ++visibilityGeneration;
-        var animation = new DoubleAnimation(-Height, TimeSpan.FromMilliseconds(200))
-        { EasingFunction = new CubicEase { EasingMode = EasingMode.EaseIn } };
-        animation.Completed += (_, _) => { if (generation == visibilityGeneration) Hide(); };
-        slide.BeginAnimation(TranslateTransform.YProperty, animation);
+        Motion.Exit(root, slide, () => { if (generation == visibilityGeneration && !IsRevealed) Hide(); });
     }
 
     internal void PrepareForMove()
     {
-        slide.BeginAnimation(TranslateTransform.YProperty, null); slide.Y = 0;
+        Motion.Reset(root, slide);
         Width = Math.Min(960, CurrentScreen.WorkingArea.Width / Native.Scale(CurrentScreen));
     }
 
@@ -287,19 +336,47 @@ internal sealed class ShelfWindow : Window
         ImageIO.SavePng(bitmap, path);
     }
 
+    internal void FinishMotion()
+    {
+        Motion.Reset(root, slide);
+        removalGeneration++; removing = false;
+        foreach (var motion in hanging.Values) motion.Settle();
+        ResetControlHover(this);
+    }
+
+    private static void ResetControlHover(DependencyObject root)
+    {
+        if (root is Button button) PaperStyle.Feedback(button)?.Reset();
+        for (var i = 0; i < VisualTreeHelper.GetChildrenCount(root); i++) ResetControlHover(VisualTreeHelper.GetChild(root, i));
+    }
+
     internal void ShowStatus(string text) { status.Text = text; statusTimer.Stop(); statusTimer.Start(); }
     internal new void Close() { closing = true; statusTimer.Stop(); base.Close(); }
 
     private static SolidColorBrush Brush(string hex) => new((Color)ColorConverter.ConvertFromString(hex));
-    private static Button Button(string text, string tooltip, Action action)
+    internal bool HangingSettled => hanging.Values.All(motion => motion.Settled);
+    internal void Copied(string path) { if (hanging.TryGetValue(path, out var motion)) motion.Copied(); }
+
+    private void ReleaseCard(string path)
     {
-        var button = new Button
+        if (removing || !hanging.TryGetValue(path, out var motion)) return;
+        removing = true;
+        var generation = ++removalGeneration;
+        motion.Release(() =>
         {
-            Content = text, ToolTip = tooltip, Foreground = Brush("#D8E8EE"), Background = Brush("#344552"),
-            BorderThickness = new Thickness(0), Padding = new Thickness(10, 3, 10, 3), Margin = new Thickness(4, 0, 0, 0), FontSize = 12
-        };
-        button.Click += (_, _) => action(); return button;
+            if (generation != removalGeneration) return;
+            removing = false;
+            controller.Remove(path);
+        });
     }
+
+    private static double StableTilt(string path)
+    {
+        uint hash = 2166136261;
+        foreach (var letter in path.ToUpperInvariant()) hash = unchecked((hash ^ letter) * 16777619);
+        return (hash % 41 - 20.0) / 10;
+    }
+
     private static void AddMenu(ContextMenu menu, string text, Action action)
     {
         var item = new MenuItem { Header = text }; item.Click += (_, _) => action(); menu.Items.Add(item);

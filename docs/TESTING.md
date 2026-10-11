@@ -17,6 +17,26 @@ Core tests cover extension allowlists, path boundaries, deduplication, bounded h
 non-destructive removal/eviction/clear, missing-file pruning, safe clipboard defaults,
 settings round trip, atomic replacement and corrupt/null settings recovery.
 
+## Isolated visual/motion checks
+
+`./scripts/Test-Motion.ps1 [-Executable <EXE>]` uses a separate verification instance and generated images.
+It does not register tray/hotkeys/watchers, read the clipboard, inject input, capture the actual desktop,
+stop the normal application, or read its settings. Evidence goes to a unique `artifacts/test-runs/*-motion/`.
+Checks cover animation intermediate/final values, interrupted transitions, reduced-motion behavior,
+new card visibility, actual shelf hide/recall and shared understandable logo/labels.
+Drag visual checks additionally verify source dimming/unclipping, input-transparent floating thumbnail,
+explicit cursor-position following, screen-edge flipping and dispose/exception restoration.
+These in-process rendering/timeline checks are not an end-to-end user interaction test.
+As of 0.1.5, verification explicitly enables the per-app animation override, so intermediate-motion and hover
+assertions are not silently skipped when Windows animation is disabled. It separately verifies default
+system-following behavior and that ReduceMotion wins over the override. No Windows setting is changed.
+0.1.6 adds spring momentum continuity/decay tests, pendulum reversal and natural rest while hovered,
+no card scaling, separate photo/count phases, button press/release compression and drag suspension.
+Intermediate animation checks sample a time window and explicitly render synthetic frames, avoiding
+false failures from a single wall-clock sample while WPF is occluded.
+Checks also exercise mouse-enter/leave routed-event bindings on buttons/entry without physical input;
+this proves animation/event wiring, not actual mouse hit-testing on every display.
+
 ## Interactive desktop E2E (Windows, unlocked interactive session)
 
 `./scripts/E2E.ps1` launches the actual self-contained portable EXE in a separate process.
@@ -52,10 +72,16 @@ private markers beyond those covered, and multi-monitor/mixed-DPI combinations r
 ## Manual (use only synthetic / non-sensitive fixtures)
 
 - [ ] Start portable EXE without installed .NET; confirm tray icon, no admin request.
+- [ ] Hover upright/tilted screenshot cards, capture/fold/remove buttons and collapsed entry; move away and verify rest pose.
+- [ ] With Windows animations off: explicit per-app override enables motion; ReduceMotion suppresses it again.
+- [ ] Drag collapsed entry while hovered and click paper buttons near edges; no flicker, stuck scale or saved-position drift.
 - [ ] Ctrl+Alt+T toggles an empty shelf; hide leaves no click-blocking overlay.
 - [ ] Add images from a test directory, single-click copies the full image; paste into Paint.
 - [ ] Double-click previews once without copying afterward; Esc closes preview.
-- [ ] Drag to a temporary Explorer folder copies a file and preserves the source.
+- [ ] Drag to a temporary Explorer folder copies a file and preserves the source; floating thumbnail follows cursor without blocking the target.
+- [ ] Esc cancels image drag and restores source opacity/peg; original file and card remain.
+- [ ] Quickly drag outside card bounds, across monitors and back; no accidental copy click, lost gesture or dangling preview.
+- [ ] Default/reduced animation settings both retain drag thumbnail (it is functional feedback, not a decorative animation).
 - [ ] X and clear remove records, preserve all files; restart restores remaining cards.
 - [ ] Edit a watched fixture with Paint; thumbnail refreshes and no locked-file errors occur.
 - [ ] Ctrl+Alt+S selects a synthetic desktop area; reverse drag, tiny selection, Esc cancel.

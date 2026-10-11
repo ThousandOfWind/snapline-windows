@@ -1,0 +1,29 @@
+{
+  "passed": 20,
+  "checks": [
+    "finite fade/translation has intermediate state",
+    "entry settles on visible base values",
+    "interrupted exit cannot leave content outside view",
+    "reduced motion renders immediately without delay",
+    "reduced-motion conceal callback runs immediately",
+    "new screenshot entry settles with both cards fully visible",
+    "approved rope remains in expanded shelf",
+    "both screenshots keep clothespins",
+    "rope/cards/buttons retain mostly transparent shelf pixels",
+    "copy response settles without moving screenshot off its peg",
+    "interrupting hanging motion restores stable card positions",
+    "rapid actual shelf reveal cancels stale conceal callbacks",
+    "actual shelf hides after short exit transition",
+    "actual shelf can be recalled after conceal",
+    "component move clears motion without hiding shelf",
+    "animated remove keeps shelf accessible and source image untouched",
+    "reduced-motion actual shelf conceals immediately",
+    "new identity handle reveals normally",
+    "shared logo resource loads at tray-sized dimensions",
+    "collapsed photo entry shows a separate count tab"
+  ],
+  "failure": null,
+  "actualDesktopCaptured": false,
+  "clipboardAccessed": false,
+  "inputInjected": false
+}

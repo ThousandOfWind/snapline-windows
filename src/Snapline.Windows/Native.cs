@@ -80,6 +80,16 @@ internal static class Native
         SetWindowLong(hwnd, -20, GetWindowLong(hwnd, -20) | 0x08000000 | 0x00000080);
     }
 
+    internal static void MakeInputTransparent(Window window)
+    {
+        MakeNonActivating(window);
+        var hwnd = new WindowInteropHelper(window).Handle;
+        SetWindowLong(hwnd, -20, GetWindowLong(hwnd, -20) | 0x00000020); // WS_EX_TRANSPARENT on a layered window
+    }
+
+    internal static bool IsInputTransparent(Window window) =>
+        (GetWindowLong(new WindowInteropHelper(window).Handle, -20) & 0x08000020) == 0x08000020;
+
     [DllImport("user32.dll", SetLastError = true)]
     [return: MarshalAs(UnmanagedType.Bool)]
     private static extern bool SetWindowPos(IntPtr hwnd, IntPtr insertAfter, int x, int y, int width, int height, uint flags);

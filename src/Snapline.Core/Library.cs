@@ -7,6 +7,8 @@ public sealed class Preferences
     public bool WatchClipboard { get; set; }
     public bool RevealAtTop { get; set; } = true;
     public bool PeekOnNew { get; set; } = true;
+    public bool ReduceMotion { get; set; }
+    public bool OverrideSystemAnimations { get; set; }
     public int Capacity { get; set; } = 50;
     public bool WatchFoldersInitialized { get; set; }
     public List<string> WatchFolders { get; set; } = [];

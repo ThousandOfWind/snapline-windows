@@ -13,9 +13,10 @@
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <ApplicationIcon>Assets/snapline.ico</ApplicationIcon>
     <AssemblyName>Snapline</AssemblyName>
-    <Version>0.1.3</Version>
+    <Version>0.1.7</Version>
   </PropertyGroup>
   <ItemGroup>
+    <Resource Include="Assets/snapline.png" />
     <ProjectReference Include="../Snapline.Core/Snapline.Core.csproj" />
     <Content Include="../../LICENSE" Link="LICENSE.txt" CopyToOutputDirectory="PreserveNewest" />
     <Content Include="../../THIRD-PARTY-NOTICES.md" Link="THIRD-PARTY-NOTICES.md" CopyToOutputDirectory="PreserveNewest" />

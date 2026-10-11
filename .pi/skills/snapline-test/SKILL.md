@@ -8,6 +8,7 @@ compatibility: Windows 10/11，.NET 10 SDK，PowerShell 7；物理 UI E2E 需要
 
 项目根目录为本 skill 目录的 `../../..`。先解析为绝对路径；下列命令都在项目根目录运行。
 已有入口：`scripts/Test.ps1`、`scripts/Build.ps1`、`scripts/E2E.ps1`；不要另造一套测试框架。
+动画/Logo 渲染可先跑 `scripts/Test-Motion.ps1`（独立生成数据，不注入键鼠、不读剪贴板，不要求停止普通实例），不能代替完整 E2E。
 详细覆盖/人工清单：`../../../docs/TESTING.md`。结果模板：`references/result-template.md`。
 
 ## 1. 确定范围与安全条件
@@ -19,6 +20,7 @@ compatibility: Windows 10/11，.NET 10 SDK，PowerShell 7；物理 UI E2E 需要
 - 只用临时目录与生成图片。不读/备份原剪贴板、用户图库、浏览器数据或凭据。
 - 保留 `--e2e-data-dir` 的隔离设置和合成截图背景；不因测试而接管真实桌面截图。额外真实内容测试需另行授权。
 - 生成图片可以渲染查看；“窗口 HWND 可见”不等于内容可见、可点击。
+- 测动效时记录系统/应用动画开关；不能把动画被关闭或跳过检查算作动效验证。中间态需显式启用测试实例的动画，再单测减少动画/跟随系统行为。
 - 本 skill 不授权安装、推送、发布 Release 或部署，不改全局 Pi 配置。
 
 ## 2. 扩展新功能测试

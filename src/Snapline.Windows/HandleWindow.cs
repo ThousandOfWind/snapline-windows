@@ -3,46 +3,88 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Interop;
 using System.Windows.Media;
+using System.Windows.Media.Effects;
 using Forms = System.Windows.Forms;
 using Snapline.Core;
 
 namespace Snapline.Windows;
 
-/// <summary>A discoverable, non-activating entry point when the transparent shelf is tucked away.</summary>
+/// <summary>A miniature hanging photo, not a blocky toolbar button.</summary>
 internal sealed class HandleWindow : Window
 {
-    private readonly Button button;
+    private readonly TextBlock caption;
+    private readonly TranslateTransform slide = new();
+    private readonly Canvas visual;
+    private readonly HoverMotion hover;
+    private readonly HoverMotion countHover;
 
     internal HandleWindow(Action showShelf, Action moveStarted, Action moveFinished)
     {
         Title = "Snapline Handle";
-        Width = 130; Height = 28;
+        Width = 120; Height = 68;
         WindowStyle = WindowStyle.None; ResizeMode = ResizeMode.NoResize;
         AllowsTransparency = true; Background = Brushes.Transparent;
         ShowInTaskbar = false; ShowActivated = false; Topmost = true;
-        button = new Button
+        visual = new Canvas { Width = 112, Height = 62 };
+        // Rope and clip remain fixed. Only the small paper photo receives the pendulum impulse.
+        var rope = new System.Windows.Shapes.Path { Data = Geometry.Parse("M5,17 C30,23 48,23 65,17"),
+            Stroke = PaperStyle.Brush("#8CAA9B"), StrokeThickness = 1.2, IsHitTestVisible = false };
+        visual.Children.Add(rope);
+        var paper = new Grid { IsHitTestVisible = false };
+        paper.Children.Add(new Border { Margin = new Thickness(5, 6, 5, 13), CornerRadius = new CornerRadius(4), Background = PaperStyle.Brush("#B5DBCC") });
+        paper.Children.Add(new Border { Margin = new Thickness(12, 14, 12, 0), Height = 2.4, VerticalAlignment = VerticalAlignment.Top, Background = PaperStyle.Brush("#438374"), CornerRadius = new CornerRadius(1) });
+        paper.Children.Add(new Border { Margin = new Thickness(12, 21, 18, 0), Height = 2.4, VerticalAlignment = VerticalAlignment.Top, Background = PaperStyle.Brush("#438374"), CornerRadius = new CornerRadius(1) });
+        var photo = new Border { Width = 44, Height = 44, Child = paper, Background = PaperStyle.Brush("#F9FCF6"),
+            CornerRadius = new CornerRadius(7), RenderTransformOrigin = new Point(0.5, 0),
+            Effect = new DropShadowEffect { Color = Color.FromRgb(30, 55, 43), BlurRadius = 5, ShadowDepth = 2, Opacity = 0.12 } };
+        Canvas.SetLeft(photo, 13); Canvas.SetTop(photo, 23); visual.Children.Add(photo);
+        var peg = PaperStyle.Peg(9, 21); Canvas.SetLeft(peg, 30.5); Canvas.SetTop(peg, 7); visual.Children.Add(peg);
+        caption = new TextBlock { Text = "0 张", FontSize = 10, Foreground = PaperStyle.Brush("#547161") };
+        var count = new Border { Child = caption, CornerRadius = new CornerRadius(10), Background = PaperStyle.Brush("#F3F7EE"),
+            Padding = new Thickness(8, 4, 8, 4),
+            Effect = new DropShadowEffect { Color = Color.FromRgb(30, 55, 43), BlurRadius = 5, ShadowDepth = 2, Opacity = 0.12 } };
+        Canvas.SetLeft(count, 66); Canvas.SetTop(count, 26); visual.Children.Add(count);
+        var button = new Button
         {
-            Content = "◈ Snapline ↑", FontSize = 11,
-            Foreground = new SolidColorBrush(Color.FromRgb(219, 247, 238)),
-            Background = new SolidColorBrush(Color.FromArgb(195, 28, 46, 48)),
-            BorderThickness = new Thickness(0), Padding = new Thickness(8, 3, 8, 3),
-            ToolTip = "点击打开截图栏 · 按住拖动移动入口 · Ctrl+Alt+T"
+            Content = visual, Background = Brushes.Transparent, BorderThickness = new Thickness(0),
+            Padding = new Thickness(0), Template = PaperStyle.Template(transparent: true),
+            ToolTip = "点击展开截图栏 · 按住小照片拖动位置 · Ctrl+Alt+T"
         };
-        button.Click += (_, _) => showShelf(); // UI Automation/keyboard invoke still works.
-        _ = new ComponentDrag(this, button, moveStarted, moveFinished, showShelf);
-        Content = new Border { CornerRadius = new CornerRadius(10), ClipToBounds = true, Child = button };
+        System.Windows.Automation.AutomationProperties.SetName(button, "展开截图栏");
+        System.Windows.Automation.AutomationProperties.SetAutomationId(button, "HandleOpen");
+        button.Click += (_, _) => showShelf();
+        // The photo and count tag have separate pivots and spring periods; the entry's hit box stays fixed.
+        hover = new HoverMotion(button, photo, pendant: true);
+        countHover = new HoverMotion(button, count, pendant: true, secondary: true);
+        _ = new ComponentDrag(this, button, () =>
+        {
+            hover.Suspend(true); countHover.Suspend(true); moveStarted();
+        }, () => { hover.Suspend(false); countHover.Suspend(false); moveFinished(); }, showShelf);
+        Content = new Border { Child = button, RenderTransform = slide };
         SourceInitialized += (_, _) => Native.MakeNonActivating(this);
     }
 
     internal void Reveal(Forms.Screen screen, int count, WindowPosition? saved = null)
     {
         screen = WindowPlacement.Screen(saved, screen);
-        button.Content = $"◈ Snapline · {count} ↑";
+        caption.Text = $"{count} 张";
+        var opening = !IsVisible;
         var scale = Native.Scale(screen);
         if (!IsVisible) Show();
         var width = (int)Math.Round(Width * scale); var height = (int)Math.Round(Height * scale);
         var position = saved == null ? new System.Drawing.Point(screen.WorkingArea.Right - (int)Math.Round((Width + 12) * scale),
             screen.WorkingArea.Top + (int)Math.Round(6 * scale)) : WindowPlacement.Restore(saved, screen.WorkingArea, width, height);
         Native.Place(this, position.X, position.Y, width, height);
+        if (opening) Motion.Enter((Border)Content, slide);
     }
+
+    internal void SaveTestRender(string path)
+    {
+        var bitmap = new System.Windows.Media.Imaging.RenderTargetBitmap((int)ActualWidth, (int)ActualHeight, 96, 96, PixelFormats.Pbgra32);
+        bitmap.Render((Border)Content); ImageIO.SavePng(bitmap, path);
+    }
+
+    internal HoverMotion HoverFeedback => hover;
+    internal HoverMotion CountFeedback => countHover;
+    internal void FinishMotion() { Motion.Reset((Border)Content, slide); hover.Reset(); countHover.Reset(); }
 }
