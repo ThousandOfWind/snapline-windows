@@ -43,15 +43,7 @@ internal sealed class ShelfWindow : Window
         Topmost = true;
         Height = 246;
         root = new Grid { RenderTransform = slide };
-        var backdrop = new Border
-        {
-            CornerRadius = new CornerRadius(0, 0, 22, 22),
-            Background = new LinearGradientBrush(Color.FromArgb(249, 22, 29, 40), Color.FromArgb(244, 30, 40, 53), 90),
-            BorderBrush = Brush("#475466"), BorderThickness = new Thickness(1),
-            Margin = new Thickness(12, 0, 12, 12),
-            Effect = new DropShadowEffect { BlurRadius = 18, ShadowDepth = 4, Opacity = 0.25 }
-        };
-        root.Children.Add(backdrop);
+        // No full-width backdrop: pixels between cards remain completely transparent.
         var content = new Grid { Margin = new Thickness(28, 8, 28, 18) };
         content.RowDefinitions.Add(new RowDefinition { Height = new GridLength(32) });
         content.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
@@ -61,10 +53,12 @@ internal sealed class ShelfWindow : Window
         actions.Children.Add(Button("收起 ↑", "隐藏截图栏 · Ctrl+Alt+T", controller.Hide));
         DockPanel.SetDock(actions, Dock.Right);
         toolbar.Children.Add(actions);
-        var brand = new TextBlock { Text = "◈  SNAPLINE", Foreground = Brush("#75E5C2"), FontWeight = FontWeights.SemiBold, FontSize = 14, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(4, 0, 24, 0) };
+        var brand = new TextBlock { Text = "◈  SNAPLINE", Foreground = Brush("#75E5C2"), FontWeight = FontWeights.SemiBold, FontSize = 14, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(4, 0, 24, 0),
+            Effect = new DropShadowEffect { Color = Colors.Black, BlurRadius = 4, ShadowDepth = 1, Opacity = 0.9 } };
         DockPanel.SetDock(brand, Dock.Left);
         toolbar.Children.Add(brand);
         status.Text = "单击复制 · 双击预览 · 拖拽分享 · 右键更多";
+        status.Effect = new DropShadowEffect { Color = Colors.Black, BlurRadius = 4, ShadowDepth = 1, Opacity = 0.9 };
         toolbar.Children.Add(status);
         content.Children.Add(toolbar);
         var area = new Grid();
@@ -95,9 +89,36 @@ internal sealed class ShelfWindow : Window
         content.Children.Add(area);
         root.Children.Add(content);
         Content = root;
-        SourceInitialized += (_, _) => Native.MakeNonActivating(this);
+        SourceInitialized += (_, _) =>
+        {
+            Native.MakeNonActivating(this);
+            System.Windows.Interop.HwndSource.FromHwnd(new System.Windows.Interop.WindowInteropHelper(this).Handle)?.AddHook(HitTestHook);
+        };
         Closing += (_, e) => { if (!closing) { e.Cancel = true; controller.Hide(); } };
         statusTimer.Tick += (_, _) => { statusTimer.Stop(); status.Text = "单击复制 · 双击预览 · 拖拽分享 · 右键更多"; };
+    }
+
+    private IntPtr HitTestHook(IntPtr hwnd, int msg, IntPtr wParam, IntPtr lParam, ref bool handled)
+    {
+        if (msg != 0x0084) return IntPtr.Zero; // WM_NCHITTEST
+        var value = lParam.ToInt64();
+        var point = PointFromScreen(new Point(unchecked((short)(value & 0xffff)), unchecked((short)((value >> 16) & 0xffff))));
+        // Only visible controls/cards catch input, not the transparent full-screen strip.
+        if (InputHitTest(point) is not DependencyObject hit || !IsInteractive(hit))
+        {
+            handled = true;
+            return new IntPtr(-1); // HTTRANSPARENT
+        }
+        return IntPtr.Zero;
+    }
+
+    private static bool IsInteractive(DependencyObject hit)
+    {
+        for (DependencyObject? node = hit; node != null; node = VisualTreeHelper.GetParent(node))
+        {
+            if (node is Button || node is FrameworkElement { Tag: "SnaplineCard" }) return true;
+        }
+        return false;
     }
 
     internal void Refresh(IReadOnlyList<string> paths)
@@ -122,7 +143,7 @@ internal sealed class ShelfWindow : Window
 
     private FrameworkElement CreateCard(string path, System.Windows.Media.Imaging.BitmapSource image)
     {
-        var card = new Grid { Width = 170, Height = 165, Margin = new Thickness(9, 15, 9, 0), ToolTip = System.IO.Path.GetFileName(path) };
+        var card = new Grid { Width = 170, Height = 165, Margin = new Thickness(9, 15, 9, 0), ToolTip = System.IO.Path.GetFileName(path), Tag = "SnaplineCard" };
         var tilt = (StringComparer.OrdinalIgnoreCase.GetHashCode(path) % 45) / 20.0;
         card.RenderTransform = new RotateTransform(tilt);
         card.RenderTransformOrigin = new Point(0.5, 0);
@@ -215,18 +236,12 @@ internal sealed class ShelfWindow : Window
         Left = screen.Bounds.Left / scale;
         Top = screen.Bounds.Top / scale;
         Width = screen.Bounds.Width / scale;
-        if (!IsRevealed)
-        {
-            IsRevealed = true;
-            if (!IsVisible)
-            {
-                slide.BeginAnimation(TranslateTransform.YProperty, null);
-                slide.Y = -Height;
-                Show();
-            }
-            slide.BeginAnimation(TranslateTransform.YProperty, new DoubleAnimation(0, TimeSpan.FromMilliseconds(250))
-            { EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut } });
-        }
+        IsRevealed = true;
+        if (!IsVisible) Show();
+        // Always reset the transform, including a reveal arriving mid-conceal.
+        // An HWND can otherwise be visible with all content still animated above the screen.
+        slide.BeginAnimation(TranslateTransform.YProperty, null);
+        slide.Y = 0;
         // Position in physical pixels to handle negative monitor origins and mixed DPI correctly.
         Native.Place(this, screen.Bounds.Left, screen.Bounds.Top, screen.Bounds.Width, (int)Math.Round(Height * scale));
         scroll.ScrollToLeftEnd();
@@ -246,6 +261,13 @@ internal sealed class ShelfWindow : Window
     internal bool ContainsCursor(System.Drawing.Point cursor) =>
         cursor.X >= CurrentScreen.Bounds.Left && cursor.X < CurrentScreen.Bounds.Right
         && cursor.Y >= CurrentScreen.Bounds.Top && cursor.Y < CurrentScreen.Bounds.Top + Height * scale;
+
+    internal void SaveTestRender(string path)
+    {
+        var bitmap = new System.Windows.Media.Imaging.RenderTargetBitmap((int)ActualWidth, (int)ActualHeight, 96, 96, PixelFormats.Pbgra32);
+        bitmap.Render(root);
+        ImageIO.SavePng(bitmap, path);
+    }
 
     internal void ShowStatus(string text) { status.Text = text; statusTimer.Stop(); statusTimer.Start(); }
     internal new void Close() { closing = true; statusTimer.Stop(); base.Close(); }

@@ -28,6 +28,8 @@ internal sealed class SnaplineApplication : IDisposable
     private readonly HashSet<string> pending = new(StringComparer.OrdinalIgnoreCase);
     private readonly DispatcherTimer timer = new() { Interval = TimeSpan.FromMilliseconds(100) };
     private readonly ShelfWindow shelf;
+    private readonly HandleWindow handle;
+    private bool showAfterCapture;
     private HwndSource? messageWindow;
     private Forms.NotifyIcon? tray;
     private DateTime hotSince;
@@ -52,6 +54,7 @@ internal sealed class SnaplineApplication : IDisposable
         settings = store.Load();
         library = new ImageLibrary(settings.Capacity, settings.Items);
         shelf = new ShelfWindow(this);
+        handle = new HandleWindow(() => Reveal(true));
     }
 
     internal void Start()
@@ -91,7 +94,13 @@ internal sealed class SnaplineApplication : IDisposable
     {
         if (msg == Native.WmShowShelf)
         {
+            if (capturing) showAfterCapture = true;
             Reveal(true); // Relaunch shows the running instance, rather than silently exiting.
+            handled = true;
+        }
+        if (msg == 0x8002 && e2e)
+        {
+            shelf.SaveTestRender(System.IO.Path.Combine(store.DirectoryPath, "shelf-render.png"));
             handled = true;
         }
         if (msg == Native.WmHotkey)
@@ -161,7 +170,7 @@ internal sealed class SnaplineApplication : IDisposable
         menu.Items.Add("从栏中移除全部（不删除文件）", null, (_, _) => { library.Clear(); Changed(); });
         menu.Items.Add(new Forms.ToolStripSeparator());
         menu.Items.Add("关于 Snapline", null, (_, _) => MessageBox.Show(
-            "Snapline 0.1.1 · Windows 10/11\n\nCtrl+Alt+T：显示 / 隐藏\nCtrl+Alt+S：区域截图\n单击复制 · 双击预览 · 拖拽发送文件\n右键菜单：另存为、打开、画图编辑、移除\n\n数据仅保存在本机，无网络、无分析。\n灵感来源：alejandrobujan/tendedero (MIT)。\n本项目使用独立名称和原创图标，与原作者无关联。", "关于 Snapline"));
+            "Snapline 0.1.2 · Windows 10/11\n\nCtrl+Alt+T：显示 / 隐藏\nCtrl+Alt+S：区域截图\n单击复制 · 双击预览 · 拖拽发送文件\n右键菜单：另存为、打开、画图编辑、移除\n\n数据仅保存在本机，无网络、无分析。\n灵感来源：alejandrobujan/tendedero (MIT)。\n本项目使用独立名称和原创图标，与原作者无关联。", "关于 Snapline"));
         menu.Items.Add("退出", null, (_, _) => app.Shutdown());
         var executable = Environment.ProcessPath!;
         tray = new Forms.NotifyIcon
@@ -171,7 +180,7 @@ internal sealed class SnaplineApplication : IDisposable
             ContextMenuStrip = menu,
             Visible = true
         };
-        tray.DoubleClick += (_, _) => Toggle();
+        tray.MouseClick += (_, e) => { if (e.Button == Forms.MouseButtons.Left) Reveal(true); };
     }
 
     private void SetClipboardListener()
@@ -265,17 +274,31 @@ internal sealed class SnaplineApplication : IDisposable
         }
     }
 
-    private void Changed() { shelf.Refresh(library.Items); Save(); }
+    private void Changed()
+    {
+        shelf.Refresh(library.Items); Save();
+        if (!shelf.IsRevealed && !capturing && !smoke) handle.Reveal(shelf.CurrentScreen, library.Items.Count);
+    }
     private void Save() { settings.Items = library.Items.ToList(); store.Save(settings); }
     internal void Remove(string path) { library.Remove(path); Changed(); }
-    internal void Hide() { shelf.Conceal(); pinned = false; peekUntil = DateTime.MinValue; }
-    internal void Toggle() { if (shelf.IsRevealed) Hide(); else Reveal(true); }
+    internal void Hide()
+    {
+        shelf.Conceal(); pinned = false; peekUntil = DateTime.MinValue;
+        hotSince = DateTime.MinValue;
+        if (!capturing && !smoke) handle.Reveal(shelf.CurrentScreen, library.Items.Count);
+    }
+    internal void Toggle()
+    {
+        if (capturing) { showAfterCapture = true; return; }
+        if (shelf.IsRevealed) Hide(); else Reveal(true);
+    }
 
     private void Reveal(bool pin)
     {
         if (capturing) return;
-        pinned = pin;
+        pinned |= pin; // Background notifications must not unpin a deliberately opened shelf.
         awaySince = DateTime.MinValue;
+        handle.Hide();
         shelf.Reveal(Forms.Screen.FromPoint(Native.Cursor));
     }
 
@@ -288,15 +311,14 @@ internal sealed class SnaplineApplication : IDisposable
         if (shelf.IsRevealed)
         {
             if (!pinned && Native.FullScreen(shelf.CurrentScreen, new WindowInteropHelper(shelf).Handle)) { Hide(); return; }
-            if (shelf.ContainsCursor(cursor)) { pinned = false; awaySince = DateTime.MinValue; }
+            if (shelf.ContainsCursor(cursor)) { awaySince = DateTime.MinValue; }
             else if (!pinned && now > peekUntil)
             {
                 if (awaySince == DateTime.MinValue) awaySince = now;
                 if ((now - awaySince).TotalMilliseconds > 650) Hide();
             }
         }
-        else if (settings.RevealAtTop && library.Items.Count > 0 && cursor.Y <= screen.Bounds.Top + 2
-            && !Native.FullScreen(screen, new WindowInteropHelper(shelf).Handle))
+        else if (settings.RevealAtTop && library.Items.Count > 0 && cursor.Y <= screen.Bounds.Top + 2)
         {
             if (hotSince == DateTime.MinValue) hotSince = now;
             if ((now - hotSince).TotalMilliseconds > 450) { Reveal(false); peekUntil = now.AddSeconds(1.2); }
@@ -319,23 +341,33 @@ internal sealed class SnaplineApplication : IDisposable
     {
         if (capturing || smoke) return;
         capturing = true;
+        showAfterCapture = true;
+        handle.Hide();
         Hide();
         try
         {
-            await Task.Delay(220);
+            await Task.Delay(260);
             var overlay = new CaptureWindow(e2e ? ImageIO.TestImage() : null);
             if (overlay.ShowDialog() == true && overlay.CapturedImage != null)
             {
                 var path = NewImagePath("Capture");
                 ImageIO.SavePng(overlay.CapturedImage, path);
-                // The overlay must close before showing the line.
-                capturing = false;
-                AddImage(path);
+                AddImage(path, peek: false);
+                shelf.ShowStatus("截图已挂上 · 点击复制 · 收起后可点右上角入口找回");
             }
         }
-        catch (Exception e) when (e is Win32Exception or ExternalException or IOException)
-        { Notify("无法截图，请检查当前桌面状态后重试。"); }
-        finally { capturing = false; }
+        catch (Exception e) when (e is Win32Exception or ExternalException or IOException or UnauthorizedAccessException or InvalidOperationException or NotSupportedException)
+        {
+            Notify("无法截图，请重试；截图栏已恢复。图片仍保存在本机。");
+            shelf.ShowStatus("截图未完成，截图栏已恢复");
+        }
+        finally
+        {
+            capturing = false;
+            // Success, cancel and recoverable failure all leave a discoverable, pinned shelf.
+            if (showAfterCapture && !disposed) Reveal(true);
+            showAfterCapture = false;
+        }
     }
 
     internal void Copy(string path)
@@ -451,6 +483,7 @@ internal sealed class SnaplineApplication : IDisposable
         }
         Save();
         if (tray != null) { tray.Visible = false; tray.Icon?.Dispose(); tray.ContextMenuStrip?.Dispose(); tray.Dispose(); }
+        handle.Close();
         shelf.Close();
     }
 }

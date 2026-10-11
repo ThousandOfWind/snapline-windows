@@ -16,10 +16,14 @@ settings round trip, atomic replacement and corrupt/null settings recovery.
 
 `./scripts/E2E.ps1` launches the actual self-contained portable EXE in a separate process.
 It uses UI Automation, real keyboard/mouse input and real filesystem/clipboard notifications.
-49 checks cover visible startup, second-launch forwarding, hotkeys, watched thumbnail rendering,
+70 checks cover visible startup, second-launch forwarding, hotkeys, watched thumbnail rendering,
 full-resolution single-click copy, double-click preview, region drag/cancel, non-destructive removal,
 hover/auto-hide, clipboard opt-in/off, self-copy suppression, mixed text/private marker rejection,
 external deletion, tray menu exit, and restart persistence.
+0.1.2 additionally verifies transparent rendered pixels, transparent-area native hit testing,
+auto-restoration and pinning after capture/cancel, >5-second visibility over a generated fullscreen form,
+clickable captured thumbnail, rapid hide/reveal animation reset, deliberate pin vs hover-only reveal,
+physical recovery-handle clicking, and the toolbar-button capture path (not just hotkey capture). The rendered shelf preview contains only synthetic fixtures.
 
 The runner uses only a unique temporary inbox/settings directory and generated images.
 `--e2e-data-dir <path>` is a test-only startup option that disables default Pictures folders

@@ -85,7 +85,8 @@ internal static class Native
     private static extern bool SetWindowPos(IntPtr hwnd, IntPtr insertAfter, int x, int y, int width, int height, uint flags);
 
     internal static void Place(Window window, int x, int y, int width, int height) =>
-        SetWindowPos(new WindowInteropHelper(window).Handle, IntPtr.Zero, x, y, width, height, 0x0010 | 0x0004);
+        SetWindowPos(new WindowInteropHelper(window).Handle, window.Topmost ? new IntPtr(-1) : IntPtr.Zero,
+            x, y, width, height, window.Topmost ? 0x0010u : 0x0010u | 0x0004u);
 
     internal static bool RegisterShortcuts(IntPtr hwnd)
     {

@@ -23,6 +23,7 @@ internal static class Program
     [STAThread]
     private static int Main(string[] args)
     {
+        Native.UsePhysicalPixels();
         if (args.Length != 2) { Console.Error.WriteLine("Usage: E2E <Snapline.exe> <report.json>"); return 2; }
         if (Process.GetProcessesByName("Snapline").Length > 0) { Console.Error.WriteLine("Quit Snapline before E2E; no existing process will be killed."); return 2; }
         var exe = Path.GetFullPath(args[0]);
@@ -42,6 +43,7 @@ internal static class Program
             Check(Find(element, "截图，挂在这里。\n按 Ctrl+Alt+S 截图，或从托盘添加图片。") != null, "empty shelf instructions rendered via UI Automation");
             Check(Invoke(element, "收起 ↑"), "real UI hide button is invokable");
             Wait(() => Window("Snapline") == IntPtr.Zero, "hide removes native window from visible desktop");
+            Wait(() => Window("Snapline Handle") != IntPtr.Zero, "hidden shelf leaves visible recovery handle");
             using (var relaunch = Process.Start(new ProcessStartInfo(exe))!)
             {
                 Check(relaunch.WaitForExit(5000) && relaunch.ExitCode == 0, "double launch forwards to running instance");
@@ -67,6 +69,14 @@ internal static class Program
             clipboardOwned = true;
             Wait(() => OwnImageDimensions(640, 360), "physical single click copies full-resolution generated image");
             Check(Items().Length == 1, "copy does not duplicate card");
+            Native.Message(app.Id, "Snapline.Messages", 0x8002, 0);
+            var rendered = Path.Combine(directory, "shelf-render.png");
+            Wait(() => File.Exists(rendered), "render transparent shelf without capturing desktop");
+            Check(TransparentFraction(rendered) > 0.70, "over 70 percent of shelf pixels are fully transparent");
+            File.Copy(rendered, Path.Combine(Path.GetDirectoryName(Path.GetFullPath(args[1]))!, "shelf-preview.png"), overwrite: true);
+            var shelfRect = Native.Bounds(Window("Snapline"));
+            Check(Native.HitTest(Window("Snapline"), shelfRect.Left + 60, shelfRect.Top + 110) == -1,
+                "empty transparent area does not intercept pointer hit-testing");
 
             Native.DoubleClick((int)(rect.Left + rect.Width / 2), (int)(rect.Top + rect.Height / 2) - 45);
             Wait(() => Window("E2E-fixture.png — Snapline") != IntPtr.Zero, "physical double click opens preview");
@@ -74,6 +84,13 @@ internal static class Program
             ((WindowPattern)preview.GetCurrentPattern(WindowPattern.Pattern)).Close();
             Wait(() => Window("E2E-fixture.png — Snapline") == IntPtr.Zero, "preview closes cleanly");
 
+            using var fullscreenFixture = new Forms.Form
+            {
+                Text = "Synthetic fullscreen E2E fixture", FormBorderStyle = Forms.FormBorderStyle.None,
+                Bounds = Forms.Screen.PrimaryScreen!.Bounds, BackColor = System.Drawing.Color.MediumAquamarine,
+                ShowInTaskbar = false, StartPosition = Forms.FormStartPosition.Manual
+            };
+            fullscreenFixture.Show(); fullscreenFixture.Activate(); Forms.Application.DoEvents();
             Native.Hotkey(0x53);
             Wait(() => Window("Snapline Capture") != IntPtr.Zero, "physical Ctrl+Alt+S opens region selector with synthetic desktop");
             var capture = Native.Bounds(Window("Snapline Capture"));
@@ -87,14 +104,54 @@ internal static class Program
             }
             Check(bitmap.PixelWidth > 3 && bitmap.PixelWidth < 640 && bitmap.PixelHeight > 3 && bitmap.PixelHeight < 360, "capture saves cropped synthetic image, not full desktop");
             Wait(() => Items().Length == 2, "captured image hangs once");
+            Wait(() => Window("Snapline") != IntPtr.Zero, "successful capture restores visible shelf automatically");
+            Thread.Sleep(5500);
+            Check(!app.HasExited && Window("Snapline") != IntPtr.Zero,
+                "capture stays visible beyond old timeout even over fullscreen fixture");
+            var capturedLabel = Find(AutomationElement.FromHandle(Window("Snapline")), Path.GetFileName(saved))!;
+            var capturedRect = capturedLabel.Current.BoundingRectangle;
+            Native.Click((int)(capturedRect.Left + capturedRect.Width / 2), (int)(capturedRect.Top + capturedRect.Height / 2) - 45);
+            Wait(() => Find(AutomationElement.FromHandle(Window("Snapline")), "已复制图片") != null,
+                "captured card remains visibly clickable after waiting");
+            for (var cycle = 0; cycle < 5; cycle++)
+            {
+                Native.Message(app.Id, "Snapline.Messages", 0x0312, 1);
+                Thread.Sleep(40);
+                Native.Message(app.Id, "Snapline.Messages", 0x8001, 0);
+                Thread.Sleep(70);
+            }
+            Thread.Sleep(400);
+            Check(Window("Snapline") != IntPtr.Zero && Find(AutomationElement.FromHandle(Window("Snapline")), Path.GetFileName(saved))?.Current.IsOffscreen == false,
+                "rapid hide/reveal never leaves content animated offscreen");
+            fullscreenFixture.Close(); Forms.Application.DoEvents();
 
             Native.Hotkey(0x53);
             Wait(() => Window("Snapline Capture") != IntPtr.Zero, "second capture opens");
             Native.Key(0x1B);
             Wait(() => Window("Snapline Capture") == IntPtr.Zero, "Esc cancels capture");
             Check(Directory.GetFiles(Path.Combine(directory, "Inbox"), "Capture-*.png").Length == 1, "cancel saves no file");
-            if (Window("Snapline") == IntPtr.Zero) Native.Hotkey(0x54);
-            Wait(() => Window("Snapline") != IntPtr.Zero, "shelf remains usable after capture cancel");
+            Wait(() => Window("Snapline") != IntPtr.Zero, "cancel automatically restores shelf without an extra hotkey");
+            Thread.Sleep(3500);
+            Check(Window("Snapline") != IntPtr.Zero, "cancelled capture leaves shelf pinned and discoverable");
+            Native.Hotkey(0x54);
+            Wait(() => Window("Snapline") == IntPtr.Zero, "post-capture hotkey can explicitly hide shelf");
+            Wait(() => Window("Snapline Handle") != IntPtr.Zero, "post-capture hide exposes recovery handle");
+            var recovery = AutomationElement.FromHandle(Window("Snapline Handle"));
+            var recoveryButton = recovery.FindFirst(TreeScope.Descendants, new PropertyCondition(AutomationElement.ControlTypeProperty, ControlType.Button));
+            var recoveryRect = recoveryButton.Current.BoundingRectangle;
+            Native.Click((int)(recoveryRect.Left + recoveryRect.Width / 2), (int)(recoveryRect.Top + recoveryRect.Height / 2));
+            Wait(() => Window("Snapline") != IntPtr.Zero, "physical handle click restores shelf after capture");
+            Check(Window("Snapline Handle") == IntPtr.Zero, "recovery handle hides when shelf opens");
+            Check(Invoke(AutomationElement.FromHandle(Window("Snapline")), "＋ 截图"), "toolbar capture button invokes real capture workflow");
+            Wait(() => Window("Snapline Capture") != IntPtr.Zero, "toolbar capture opens selector");
+            var toolbarCapture = Native.Bounds(Window("Snapline Capture"));
+            Native.Drag(toolbarCapture.Left + 160, toolbarCapture.Top + 140, toolbarCapture.Left + 400, toolbarCapture.Top + 300);
+            Wait(() => Items().Length == 3, "toolbar capture persists image");
+            Wait(() => Window("Snapline") != IntPtr.Zero, "toolbar capture restores shelf automatically");
+            Thread.Sleep(4000);
+            Check(Window("Snapline") != IntPtr.Zero, "toolbar capture stays visible instead of disappearing");
+            File.Delete(Items().Last());
+            Wait(() => Items().Length == 2, "toolbar synthetic fixture cleanup prunes only test record");
 
             Native.Message(app.Id, "Snapline.Messages", 0x8001, 0);
             Thread.Sleep(1000);
@@ -115,10 +172,19 @@ internal static class Program
             Native.Move(shelfBounds.Left + 80, shelfBounds.Top + 80);
             Thread.Sleep(400);
             Native.Move(shelfBounds.Left + 80, shelfBounds.Bottom + 100);
-            Wait(() => Window("Snapline") == IntPtr.Zero, "moving away automatically hides shelf after visiting");
-            Native.Move(shelfBounds.Left + 80, shelfBounds.Top + 1);
-            Wait(() => Window("Snapline") != IntPtr.Zero, "physical top-edge hover reveals existing cards");
+            Thread.Sleep(1400);
+            Check(Window("Snapline") != IntPtr.Zero, "manual reveal stays pinned after cursor visits then leaves");
+            Native.Hotkey(0x54);
+            Wait(() => Window("Snapline") == IntPtr.Zero, "manual pin only hides on explicit command");
+            Wait(() =>
+            {
+                var screen = Forms.Screen.PrimaryScreen!.Bounds;
+                Native.Move(screen.Left + 80, screen.Top + 1);
+                return Window("Snapline") != IntPtr.Zero;
+            }, "physical top-edge hover reveals existing cards");
             Thread.Sleep(350);
+            Native.Move(shelfBounds.Left + 80, shelfBounds.Bottom + 100);
+            Wait(() => Window("Snapline") == IntPtr.Zero, "hover-only reveal still auto-hides when moving away");
 
             var remaining = Items().Single();
             Native.OpenTrayMenu(app.Id); Thread.Sleep(400);
@@ -204,15 +270,28 @@ internal static class Program
         {
             try { if (condition()) { Check(true, name); return; } }
             catch (Exception e) when (e is IOException or ElementNotAvailableException or InvalidOperationException or JsonException) { }
+            Forms.Application.DoEvents();
             Thread.Sleep(100);
         }
-        throw new Exception("TIMEOUT: " + name);
+        throw new Exception($"TIMEOUT: {name}; test cursor={Native.Cursor.X},{Native.Cursor.Y}");
     }
     private static bool OwnImageDimensions(int width, int height)
     {
         try { var image = Clipboard.GetImage(); return image?.PixelWidth == width && image.PixelHeight == height; }
         catch (ExternalException) { return false; }
     }
+    private static double TransparentFraction(string path)
+    {
+        using var stream = File.OpenRead(path);
+        var decoder = BitmapDecoder.Create(stream, BitmapCreateOptions.PreservePixelFormat, BitmapCacheOption.OnLoad);
+        var frame = new System.Windows.Media.Imaging.FormatConvertedBitmap(decoder.Frames[0], System.Windows.Media.PixelFormats.Bgra32, null, 0);
+        var pixels = new byte[frame.PixelWidth * frame.PixelHeight * 4];
+        frame.CopyPixels(pixels, frame.PixelWidth * 4, 0);
+        var transparent = 0;
+        for (var i = 3; i < pixels.Length; i += 4) if (pixels[i] == 0) transparent++;
+        return (double)transparent / (frame.PixelWidth * frame.PixelHeight);
+    }
+
     private static void GenerateImage(string path)
     {
         using var bitmap = new System.Drawing.Bitmap(640, 360);
@@ -238,6 +317,8 @@ internal static class Program
 
 internal static class Native
 {
+    [DllImport("user32.dll")] private static extern IntPtr SetThreadDpiAwarenessContext(IntPtr context);
+    internal static void UsePhysicalPixels() => SetThreadDpiAwarenessContext(new IntPtr(-4));
     private delegate bool Callback(IntPtr hwnd, IntPtr state);
     [DllImport("user32.dll")] private static extern bool EnumWindows(Callback callback, IntPtr state);
     [DllImport("user32.dll")] private static extern uint GetWindowThreadProcessId(IntPtr hwnd, out uint pid);
@@ -250,6 +331,8 @@ internal static class Native
     [DllImport("user32.dll")] private static extern void keybd_event(byte key, byte scan, uint flags, UIntPtr extra);
     [DllImport("user32.dll")] private static extern void mouse_event(uint flags, uint x, uint y, uint data, UIntPtr extra);
     [DllImport("user32.dll")] private static extern bool PostMessage(IntPtr hwnd, uint message, IntPtr wParam, IntPtr lParam);
+    [DllImport("user32.dll")] private static extern IntPtr SendMessage(IntPtr hwnd, uint message, IntPtr wParam, IntPtr lParam);
+    internal static int HitTest(IntPtr hwnd, int x, int y) => (int)SendMessage(hwnd, 0x0084, IntPtr.Zero, (IntPtr)((y << 16) | (x & 0xffff)));
     [StructLayout(LayoutKind.Sequential)] internal struct Rect { public int Left, Top, Right, Bottom; }
     [StructLayout(LayoutKind.Sequential)] internal struct Point { public int X, Y; }
     internal static Point Cursor { get { GetCursorPos(out var p); return p; } }
