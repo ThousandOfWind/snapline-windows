@@ -21,17 +21,11 @@ internal sealed class CaptureWindow : Window
     private bool selecting;
     internal BitmapSource? CapturedImage { get; private set; }
 
-    internal CaptureWindow()
+    internal CaptureWindow(BitmapSource? syntheticDesktop = null)
     {
+        Title = "Snapline Capture";
         var bounds = Forms.SystemInformation.VirtualScreen;
-        using var bitmap = new System.Drawing.Bitmap(bounds.Width, bounds.Height, System.Drawing.Imaging.PixelFormat.Format32bppArgb);
-        using (var graphics = System.Drawing.Graphics.FromImage(bitmap))
-            graphics.CopyFromScreen(bounds.Left, bounds.Top, 0, 0, bounds.Size, System.Drawing.CopyPixelOperation.SourceCopy);
-        using var stream = new MemoryStream();
-        bitmap.Save(stream, ImageFormat.Png); stream.Position = 0;
-        var image = new BitmapImage();
-        image.BeginInit(); image.CacheOption = BitmapCacheOption.OnLoad; image.StreamSource = stream; image.EndInit(); image.Freeze();
-        desktop = image;
+        desktop = syntheticDesktop ?? CaptureDesktop(bounds);
         WindowStyle = WindowStyle.None; ResizeMode = ResizeMode.NoResize;
         ShowInTaskbar = false; Topmost = true; Cursor = Cursors.Cross;
         var scale = Native.Scale(Forms.Screen.PrimaryScreen!);
@@ -80,5 +74,17 @@ internal sealed class CaptureWindow : Window
         };
         SourceInitialized += (_, _) => Native.Place(this, bounds.Left, bounds.Top, bounds.Width, bounds.Height);
         Loaded += (_, _) => Activate();
+    }
+
+    private static BitmapSource CaptureDesktop(System.Drawing.Rectangle bounds)
+    {
+        using var bitmap = new System.Drawing.Bitmap(bounds.Width, bounds.Height, System.Drawing.Imaging.PixelFormat.Format32bppArgb);
+        using (var graphics = System.Drawing.Graphics.FromImage(bitmap))
+            graphics.CopyFromScreen(bounds.Left, bounds.Top, 0, 0, bounds.Size, System.Drawing.CopyPixelOperation.SourceCopy);
+        using var stream = new MemoryStream();
+        bitmap.Save(stream, ImageFormat.Png); stream.Position = 0;
+        var image = new BitmapImage();
+        image.BeginInit(); image.CacheOption = BitmapCacheOption.OnLoad; image.StreamSource = stream; image.EndInit(); image.Freeze();
+        return image;
     }
 }

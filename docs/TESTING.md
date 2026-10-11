@@ -12,6 +12,28 @@ Core tests cover extension allowlists, path boundaries, deduplication, bounded h
 non-destructive removal/eviction/clear, missing-file pruning, safe clipboard defaults,
 settings round trip, atomic replacement and corrupt/null settings recovery.
 
+## Interactive desktop E2E (Windows, unlocked interactive session)
+
+`./scripts/E2E.ps1` launches the actual self-contained portable EXE in a separate process.
+It uses UI Automation, real keyboard/mouse input and real filesystem/clipboard notifications.
+49 checks cover visible startup, second-launch forwarding, hotkeys, watched thumbnail rendering,
+full-resolution single-click copy, double-click preview, region drag/cancel, non-destructive removal,
+hover/auto-hide, clipboard opt-in/off, self-copy suppression, mixed text/private marker rejection,
+external deletion, tray menu exit, and restart persistence.
+
+The runner uses only a unique temporary inbox/settings directory and generated images.
+`--e2e-data-dir <path>` is a test-only startup option that disables default Pictures folders
+and supplies a synthetic desktop to the normal region-selection UI; it never captures the real desktop.
+Do not use this option for ordinary app use. Existing Snapline instances cause an explicit test failure.
+Tests never inspect the existing clipboard; they overwrite it with generated fixtures and clear it afterward.
+Run only when this clipboard replacement and brief keyboard/mouse automation are acceptable.
+Tray menu opening uses the actual NotifyIcon callback, not a physical click on Explorer's tray icon.
+Clipboard format/content assertions read only the fixture the test just copied successfully.
+The report is `artifacts/e2e-report.json` (ignored by git, no private paths/content included).
+
+Actual desktop screen capture fidelity, drag-to-other-app interoperability, Save As/painting,
+private markers beyond those covered, and multi-monitor/mixed-DPI combinations remain manual.
+
 ## Manual (use only synthetic / non-sensitive fixtures)
 
 - [ ] Start portable EXE without installed .NET; confirm tray icon, no admin request.

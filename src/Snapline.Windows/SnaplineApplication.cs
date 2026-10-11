@@ -23,6 +23,7 @@ internal sealed class SnaplineApplication : IDisposable
     private readonly Preferences settings;
     private readonly ImageLibrary library;
     private readonly bool smoke;
+    private readonly bool e2e;
     private readonly List<FileSystemWatcher> watchers = [];
     private readonly HashSet<string> pending = new(StringComparer.OrdinalIgnoreCase);
     private readonly DispatcherTimer timer = new() { Interval = TimeSpan.FromMilliseconds(100) };
@@ -42,10 +43,11 @@ internal sealed class SnaplineApplication : IDisposable
     private bool clipboardRetryPending;
     private int tickCount;
 
-    internal SnaplineApplication(Application app, string directory, bool smoke)
+    internal SnaplineApplication(Application app, string directory, bool smoke, bool e2e = false)
     {
         this.app = app;
         this.smoke = smoke;
+        this.e2e = e2e;
         store = new SettingsStore(directory);
         settings = store.Load();
         library = new ImageLibrary(settings.Capacity, settings.Items);
@@ -68,7 +70,7 @@ internal sealed class SnaplineApplication : IDisposable
             CreateTray();
             if (!Native.RegisterShortcuts(messageWindow.Handle))
                 Notify("快捷键被其他应用占用，可从托盘菜单打开截图栏或区域截图。");
-            if (!settings.WatchFoldersInitialized)
+            if (!settings.WatchFoldersInitialized && !e2e)
             {
                 settings.WatchFoldersInitialized = true;
                 var pictures = Environment.GetFolderPath(Environment.SpecialFolder.MyPictures);
@@ -78,6 +80,8 @@ internal sealed class SnaplineApplication : IDisposable
             StartWatchers();
             SetClipboardListener();
             shelf.Refresh(library.Items);
+            Reveal(true); // A launch must visibly confirm that the application is running.
+            Save();
         }
         timer.Tick += Tick;
         timer.Start();
@@ -85,6 +89,11 @@ internal sealed class SnaplineApplication : IDisposable
 
     private IntPtr MessageHook(IntPtr hwnd, int msg, IntPtr wParam, IntPtr lParam, ref bool handled)
     {
+        if (msg == Native.WmShowShelf)
+        {
+            Reveal(true); // Relaunch shows the running instance, rather than silently exiting.
+            handled = true;
+        }
         if (msg == Native.WmHotkey)
         {
             if (wParam.ToInt32() == Native.ToggleHotkey) Toggle();
@@ -152,7 +161,7 @@ internal sealed class SnaplineApplication : IDisposable
         menu.Items.Add("从栏中移除全部（不删除文件）", null, (_, _) => { library.Clear(); Changed(); });
         menu.Items.Add(new Forms.ToolStripSeparator());
         menu.Items.Add("关于 Snapline", null, (_, _) => MessageBox.Show(
-            "Snapline 0.1.0 · Windows 10/11\n\nCtrl+Alt+T：显示 / 隐藏\nCtrl+Alt+S：区域截图\n单击复制 · 双击预览 · 拖拽发送文件\n右键菜单：另存为、打开、画图编辑、移除\n\n数据仅保存在本机，无网络、无分析。\n灵感来源：alejandrobujan/tendedero (MIT)。\n本项目使用独立名称和原创图标，与原作者无关联。", "关于 Snapline"));
+            "Snapline 0.1.1 · Windows 10/11\n\nCtrl+Alt+T：显示 / 隐藏\nCtrl+Alt+S：区域截图\n单击复制 · 双击预览 · 拖拽发送文件\n右键菜单：另存为、打开、画图编辑、移除\n\n数据仅保存在本机，无网络、无分析。\n灵感来源：alejandrobujan/tendedero (MIT)。\n本项目使用独立名称和原创图标，与原作者无关联。", "关于 Snapline"));
         menu.Items.Add("退出", null, (_, _) => app.Shutdown());
         var executable = Environment.ProcessPath!;
         tray = new Forms.NotifyIcon
@@ -278,7 +287,7 @@ internal sealed class SnaplineApplication : IDisposable
         var screen = Forms.Screen.FromPoint(cursor);
         if (shelf.IsRevealed)
         {
-            if (Native.FullScreen(shelf.CurrentScreen, new WindowInteropHelper(shelf).Handle)) { Hide(); return; }
+            if (!pinned && Native.FullScreen(shelf.CurrentScreen, new WindowInteropHelper(shelf).Handle)) { Hide(); return; }
             if (shelf.ContainsCursor(cursor)) { pinned = false; awaySince = DateTime.MinValue; }
             else if (!pinned && now > peekUntil)
             {
@@ -314,7 +323,7 @@ internal sealed class SnaplineApplication : IDisposable
         try
         {
             await Task.Delay(220);
-            var overlay = new CaptureWindow();
+            var overlay = new CaptureWindow(e2e ? ImageIO.TestImage() : null);
             if (overlay.ShowDialog() == true && overlay.CapturedImage != null)
             {
                 var path = NewImagePath("Capture");

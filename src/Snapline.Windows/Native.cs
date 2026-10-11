@@ -10,6 +10,18 @@ internal static class Native
 {
     internal const int WmHotkey = 0x0312;
     internal const int WmClipboardUpdate = 0x031D;
+    internal const int WmShowShelf = 0x8001;
+
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+    private static extern IntPtr FindWindow(string? className, string windowName);
+    [DllImport("user32.dll", SetLastError = true)]
+    private static extern IntPtr SendMessageTimeout(IntPtr hwnd, uint message, IntPtr wParam, IntPtr lParam, uint flags, uint timeout, out IntPtr result);
+
+    internal static bool ShowExistingInstance()
+    {
+        var hwnd = FindWindow(null, "Snapline.Messages");
+        return hwnd != IntPtr.Zero && SendMessageTimeout(hwnd, WmShowShelf, IntPtr.Zero, IntPtr.Zero, 2, 2000, out _) != IntPtr.Zero;
+    }
     internal const int ToggleHotkey = 1;
     internal const int CaptureHotkey = 2;
     private const uint Modifiers = 0x0002 | 0x0001 | 0x4000; // Ctrl + Alt + no-repeat

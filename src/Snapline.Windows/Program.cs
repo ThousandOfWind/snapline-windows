@@ -13,10 +13,22 @@ internal static class Program
     private static int Main(string[] args)
     {
         var smoke = args.Contains("--smoke-test");
+        // E2E uses an explicit temporary directory and synthetic capture; never a user's files or desktop.
+        var e2e = args.Length == 2 && args[0] == "--e2e-data-dir";
         using var mutex = new Mutex(true, @"Local\Snapline.Windows", out var first);
-        if (!first) return smoke ? 2 : 0;
+        if (!first)
+        {
+            if (smoke || e2e) return 2;
+            for (var attempt = 0; attempt < 20; attempt++)
+            {
+                if (Native.ShowExistingInstance()) return 0;
+                Thread.Sleep(100);
+            }
+            return 1;
+        }
         var dataDirectory = smoke
             ? Path.Combine(Path.GetTempPath(), "Snapline-smoke-" + Guid.NewGuid().ToString("N"))
+            : e2e ? Path.GetFullPath(args[1])
             : Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Snapline");
         var app = new Application { ShutdownMode = ShutdownMode.OnExplicitShutdown };
         app.DispatcherUnhandledException += (_, e) =>
@@ -25,12 +37,12 @@ internal static class Program
             // Only exception type and stack: no clipboard payloads or image paths in logs.
             File.AppendAllText(Path.Combine(dataDirectory, "error.log"), $"{DateTime.UtcNow:O} {e.Exception.GetType().Name}\n{e.Exception.StackTrace}\n");
             e.Handled = true;
-            if (!smoke) MessageBox.Show("操作未完成，请重试。错误日志在 %LOCALAPPDATA%\\Snapline\\error.log。", "Snapline");
+            if (!smoke && !e2e) MessageBox.Show("操作未完成，请重试。错误日志在 %LOCALAPPDATA%\\Snapline\\error.log。", "Snapline");
         };
         SnaplineApplication? controller = null;
         app.Startup += (_, _) =>
         {
-            controller = new SnaplineApplication(app, dataDirectory, smoke);
+            controller = new SnaplineApplication(app, dataDirectory, smoke, e2e);
             controller.Start();
             if (smoke)
             {
