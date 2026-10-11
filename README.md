@@ -112,6 +112,20 @@ cd snapline-windows
 测试程序无需第三方测试框架：`dotnet run --project tests/Snapline.Tests -c Release`。
 GitHub Actions 在 Windows 构建并提供 ZIP artifact，不自动发布或部署。
 
+### 项目内测试 skill
+
+[`.pi/skills/snapline-test/SKILL.md`](.pi/skills/snapline-test/SKILL.md) 封装了测试流程、
+新功能扩展规则和结果模板，复用上述脚本，无全局安装或额外依赖。
+从本项目根目录启动 Pi，按正常流程确认项目信任；已打开的项目会话执行 `/reload`，然后使用：
+
+```text
+/skill:snapline-test 测试新增的拖拽功能，扩展回归用例并记录结果
+```
+
+若当前 Pi 会话的工作目录不是本项目，可直接要求助手读取上述 `SKILL.md`，
+其中路径按 skill 所在目录解析。使用 skill 不代表授权停止应用、替换剪贴板或发布代码；
+交互 E2E 前仍需确认桌面操作和剪贴板副作用。
+
 目录结构：
 
 ```text

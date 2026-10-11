@@ -1,5 +1,10 @@
 # Test plan
 
+Reusable project skill: [snapline-test](../.pi/skills/snapline-test/SKILL.md).
+Use `/skill:snapline-test <feature or bug>` in Pi opened from this repository.
+It defines safety gates, new-feature coverage, layered validation and an evidence template;
+this document keeps the concrete coverage and manual acceptance checklist.
+
 ## Automated
 
 `./scripts/Test.ps1` runs core regression tests and a three-second UI smoke test.
