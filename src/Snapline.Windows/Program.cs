@@ -1,0 +1,52 @@
+using System;
+using System.IO;
+using System.Linq;
+using System.Threading;
+using System.Windows;
+using System.Windows.Threading;
+
+namespace Snapline.Windows;
+
+internal static class Program
+{
+    [STAThread]
+    private static int Main(string[] args)
+    {
+        var smoke = args.Contains("--smoke-test");
+        using var mutex = new Mutex(true, @"Local\Snapline.Windows", out var first);
+        if (!first) return smoke ? 2 : 0;
+        var dataDirectory = smoke
+            ? Path.Combine(Path.GetTempPath(), "Snapline-smoke-" + Guid.NewGuid().ToString("N"))
+            : Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Snapline");
+        var app = new Application { ShutdownMode = ShutdownMode.OnExplicitShutdown };
+        app.DispatcherUnhandledException += (_, e) =>
+        {
+            Directory.CreateDirectory(dataDirectory);
+            // Only exception type and stack: no clipboard payloads or image paths in logs.
+            File.AppendAllText(Path.Combine(dataDirectory, "error.log"), $"{DateTime.UtcNow:O} {e.Exception.GetType().Name}\n{e.Exception.StackTrace}\n");
+            e.Handled = true;
+            if (!smoke) MessageBox.Show("操作未完成，请重试。错误日志在 %LOCALAPPDATA%\\Snapline\\error.log。", "Snapline");
+        };
+        SnaplineApplication? controller = null;
+        app.Startup += (_, _) =>
+        {
+            controller = new SnaplineApplication(app, dataDirectory, smoke);
+            controller.Start();
+            if (smoke)
+            {
+                var timer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(3) };
+                timer.Tick += (_, _) => { timer.Stop(); app.Shutdown(); };
+                timer.Start();
+            }
+        };
+        app.Exit += (_, _) => controller?.Dispose();
+        app.Run();
+        if (smoke)
+        {
+            var failed = File.Exists(Path.Combine(dataDirectory, "error.log"));
+            Directory.Delete(dataDirectory, recursive: true);
+            return failed ? 1 : 0;
+        }
+        return 0;
+    }
+}
