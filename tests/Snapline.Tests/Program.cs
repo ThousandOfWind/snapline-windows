@@ -39,10 +39,19 @@ try
     Check(restored.Items.Count == 1, "restore ignores duplicate and missing files");
     var store = new SettingsStore(Path.Combine(directory, "data"));
     Check(!store.Load().WatchClipboard, "clipboard is opt-in");
-    var preferences = new Preferences { WatchClipboard = true, Items = [a], WatchFolders = [directory] };
+    Check(PlacementMath.Offset(0.5, 400) == 200, "normalized position restores to available travel");
+    Check(PlacementMath.Offset(2, 400) == 400 && PlacementMath.Offset(-1, 400) == 0, "placement clamps offscreen ratios");
+    Check(PlacementMath.Offset(double.NaN, 400) == 0 && PlacementMath.Offset(double.PositiveInfinity, 400) == 0, "invalid coordinates recover safely");
+    Check(PlacementMath.Offset(0.5, -20) == 0, "oversized component remains anchored on small monitor");
+    Check(PlacementMath.Relative(200, 400) == 0.5 && PlacementMath.Relative(200, 0) == 0, "relative position handles zero travel");
+    Check(store.Load().ShelfPosition == null && store.Load().HandlePosition == null, "older settings retain default component positions");
+    var preferences = new Preferences { WatchClipboard = true, Items = [a], WatchFolders = [directory],
+        ShelfPosition = new WindowPosition { Screen = "test-monitor", X = 0.25, Y = 0.5 },
+        HandlePosition = new WindowPosition { Screen = "test-monitor", X = 0.75, Y = 0.125 } };
     store.Save(preferences);
     var loaded = store.Load();
     Check(loaded.WatchClipboard && loaded.Items.Single() == a && loaded.WatchFolders.Single() == directory, "settings round trip");
+    Check(loaded.ShelfPosition?.X == 0.25 && loaded.ShelfPosition.Y == 0.5 && loaded.HandlePosition?.Y == 0.125, "independent component positions persist");
     Check(!File.Exists(store.SettingsPath + ".tmp"), "atomic settings save leaves no temporary file");
     File.WriteAllText(store.SettingsPath, "{broken json");
     Check(!store.Load().WatchClipboard, "corrupt settings recover with safe defaults");

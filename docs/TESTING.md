@@ -16,7 +16,7 @@ settings round trip, atomic replacement and corrupt/null settings recovery.
 
 `./scripts/E2E.ps1` launches the actual self-contained portable EXE in a separate process.
 It uses UI Automation, real keyboard/mouse input and real filesystem/clipboard notifications.
-70 checks cover visible startup, second-launch forwarding, hotkeys, watched thumbnail rendering,
+91 checks cover visible startup, second-launch forwarding, hotkeys, watched thumbnail rendering,
 full-resolution single-click copy, double-click preview, region drag/cancel, non-destructive removal,
 hover/auto-hide, clipboard opt-in/off, self-copy suppression, mixed text/private marker rejection,
 external deletion, tray menu exit, and restart persistence.
@@ -24,6 +24,12 @@ external deletion, tray menu exit, and restart persistence.
 auto-restoration and pinning after capture/cancel, >5-second visibility over a generated fullscreen form,
 clickable captured thumbnail, rapid hide/reveal animation reset, deliberate pin vs hover-only reveal,
 physical recovery-handle clicking, and the toolbar-button capture path (not just hotkey capture). The rendered shelf preview contains only synthetic fixtures.
+
+0.1.3 adds real grip dragging on both axes, compact floating shelf width, independent collapsed-handle dragging
+without accidental click/open, hide/reveal and capture-cancel placement retention, independent restart restore,
+and real tray reset. Core tests cover normalized/clamped/invalid positions, oversized component travel,
+old-settings defaults and independent placement persistence. Test desktop must stay idle: other mouse input
+can interfere with physical automation.
 
 The runner uses only a unique temporary inbox/settings directory and generated images.
 `--e2e-data-dir <path>` is a test-only startup option that disables default Pictures folders
@@ -57,6 +63,8 @@ private markers beyond those covered, and multi-monitor/mixed-DPI combinations r
 - [ ] >50 test images evict oldest references without deleting source files.
 - [ ] Hover top edge on each monitor, including negative origins and 100%/150% mixed DPI.
 - [ ] Move between monitors, change display settings, resume from sleep.
+- [ ] Drag shelf grip and collapsed handle between mixed-DPI/negative-origin monitors; restart with a monitor disconnected.
+- [ ] Drag both components to every work-area edge; verify taskbar remains accessible and reset recovers placement.
 - [ ] Full-screen non-sensitive app hides shelf; normal desktop reveals it again.
 - [ ] Hotkey collision has a tray notification and menu operations remain available.
 - [ ] Quit releases hotkeys/clipboard listener and leaves no process or tray icon.

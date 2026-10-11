@@ -54,7 +54,7 @@ internal sealed class SnaplineApplication : IDisposable
         settings = store.Load();
         library = new ImageLibrary(settings.Capacity, settings.Items);
         shelf = new ShelfWindow(this);
-        handle = new HandleWindow(() => Reveal(true));
+        handle = new HandleWindow(() => Reveal(true), BeginComponentMove, () => EndComponentMove(isShelf: false));
     }
 
     internal void Start()
@@ -166,11 +166,12 @@ internal sealed class SnaplineApplication : IDisposable
         menu.Items.Add(peek);
         menu.Items.Add("添加监听目录…", null, (_, _) => ChooseFolder());
         menu.Items.Add("管理监听目录…", null, (_, _) => ManageFolders());
+        menu.Items.Add("重置组件位置", null, (_, _) => ResetComponentPositions());
         menu.Items.Add("打开本地收件箱", null, (_, _) => Open(store.InboxPath));
         menu.Items.Add("从栏中移除全部（不删除文件）", null, (_, _) => { library.Clear(); Changed(); });
         menu.Items.Add(new Forms.ToolStripSeparator());
         menu.Items.Add("关于 Snapline", null, (_, _) => MessageBox.Show(
-            "Snapline 0.1.2 · Windows 10/11\n\nCtrl+Alt+T：显示 / 隐藏\nCtrl+Alt+S：区域截图\n单击复制 · 双击预览 · 拖拽发送文件\n右键菜单：另存为、打开、画图编辑、移除\n\n数据仅保存在本机，无网络、无分析。\n灵感来源：alejandrobujan/tendedero (MIT)。\n本项目使用独立名称和原创图标，与原作者无关联。", "关于 Snapline"));
+            "Snapline 0.1.3 · Windows 10/11\n\nCtrl+Alt+T：显示 / 隐藏\nCtrl+Alt+S：区域截图\n拖动左侧 ⠿ SNAPLINE 或收起的小入口可移动组件\n单击复制 · 双击预览 · 拖拽发送文件\n右键菜单：另存为、打开、画图编辑、移除\n\n数据仅保存在本机，无网络、无分析。\n灵感来源：alejandrobujan/tendedero (MIT)。\n本项目使用独立名称和原创图标，与原作者无关联。", "关于 Snapline"));
         menu.Items.Add("退出", null, (_, _) => app.Shutdown());
         var executable = Environment.ProcessPath!;
         tray = new Forms.NotifyIcon
@@ -277,7 +278,7 @@ internal sealed class SnaplineApplication : IDisposable
     private void Changed()
     {
         shelf.Refresh(library.Items); Save();
-        if (!shelf.IsRevealed && !capturing && !smoke) handle.Reveal(shelf.CurrentScreen, library.Items.Count);
+        if (!shelf.IsRevealed && !capturing && !smoke && !busy) handle.Reveal(shelf.CurrentScreen, library.Items.Count, settings.HandlePosition);
     }
     private void Save() { settings.Items = library.Items.ToList(); store.Save(settings); }
     internal void Remove(string path) { library.Remove(path); Changed(); }
@@ -285,7 +286,7 @@ internal sealed class SnaplineApplication : IDisposable
     {
         shelf.Conceal(); pinned = false; peekUntil = DateTime.MinValue;
         hotSince = DateTime.MinValue;
-        if (!capturing && !smoke) handle.Reveal(shelf.CurrentScreen, library.Items.Count);
+        if (!capturing && !smoke) handle.Reveal(shelf.CurrentScreen, library.Items.Count, settings.HandlePosition);
     }
     internal void Toggle()
     {
@@ -299,7 +300,29 @@ internal sealed class SnaplineApplication : IDisposable
         pinned |= pin; // Background notifications must not unpin a deliberately opened shelf.
         awaySince = DateTime.MinValue;
         handle.Hide();
-        shelf.Reveal(Forms.Screen.FromPoint(Native.Cursor));
+        shelf.Reveal(Forms.Screen.FromPoint(Native.Cursor), settings.ShelfPosition);
+    }
+
+    internal void BeginComponentMove()
+    {
+        busy = true;
+        if (shelf.IsRevealed) { pinned = true; shelf.PrepareForMove(); }
+    }
+
+    internal void EndComponentMove(bool isShelf)
+    {
+        if (isShelf) settings.ShelfPosition = WindowPlacement.Remember(shelf);
+        else settings.HandlePosition = WindowPlacement.Remember(handle);
+        busy = false;
+        Save();
+        shelf.ShowStatus("位置已保存 · 拖动左侧 ⠿ 可移动 · 托盘可重置位置");
+    }
+
+    private void ResetComponentPositions()
+    {
+        settings.ShelfPosition = null; settings.HandlePosition = null; Save();
+        if (shelf.IsRevealed) Reveal(true);
+        else handle.Reveal(Forms.Screen.FromPoint(Native.Cursor), library.Items.Count);
     }
 
     private void Tick(object? sender, EventArgs e)
@@ -353,7 +376,7 @@ internal sealed class SnaplineApplication : IDisposable
                 var path = NewImagePath("Capture");
                 ImageIO.SavePng(overlay.CapturedImage, path);
                 AddImage(path, peek: false);
-                shelf.ShowStatus("截图已挂上 · 点击复制 · 收起后可点右上角入口找回");
+                shelf.ShowStatus("截图已挂上 · 点击复制 · 收起后可点 Snapline 入口找回");
             }
         }
         catch (Exception e) when (e is Win32Exception or ExternalException or IOException or UnauthorizedAccessException or InvalidOperationException or NotSupportedException)

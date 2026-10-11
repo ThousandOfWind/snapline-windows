@@ -11,6 +11,8 @@ public sealed class Preferences
     public bool WatchFoldersInitialized { get; set; }
     public List<string> WatchFolders { get; set; } = [];
     public List<string> Items { get; set; } = [];
+    public WindowPosition? ShelfPosition { get; set; }
+    public WindowPosition? HandlePosition { get; set; }
 }
 
 public static class ImageFiles

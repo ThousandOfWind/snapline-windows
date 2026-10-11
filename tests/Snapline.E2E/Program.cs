@@ -224,12 +224,59 @@ internal static class Program
             Wait(() => Items().Length == 1, "external fixture deletion prunes missing reference");
             Check(Items().Single() == remaining, "remaining record unchanged after clipboard tests");
 
+            Native.Message(app.Id, "Snapline.Messages", 0x8001, 0);
+            Wait(() => Window("Snapline") != IntPtr.Zero, "shelf visible before component drag");
+            var beforeMove = Native.Bounds(Window("Snapline"));
+            var grip = AutomationElement.FromHandle(Window("Snapline")).FindFirst(TreeScope.Descendants,
+                new PropertyCondition(AutomationElement.AutomationIdProperty, "ShelfDragGrip"));
+            var gripRect = grip.Current.BoundingRectangle;
+            Native.Drag((int)(gripRect.Left + gripRect.Width / 2), (int)(gripRect.Top + gripRect.Height / 2),
+                (int)(gripRect.Left + gripRect.Width / 2) + 180, (int)(gripRect.Top + gripRect.Height / 2) + 180);
+            Wait(() => Settings().GetProperty("ShelfPosition").ValueKind == JsonValueKind.Object, "physical grip drag saves shelf position");
+            var movedShelf = Native.Bounds(Window("Snapline"));
+            Check(movedShelf.Top > beforeMove.Top + 50 && movedShelf.Left > beforeMove.Left + 50,
+                "grip moves shelf both horizontally and vertically");
+            Check(movedShelf.Right - movedShelf.Left < beforeMove.Right - beforeMove.Left, "first drag converts full-width shelf to movable floating width");
+            Check(Items().Single() == remaining, "moving component does not share or remove image files");
+            Native.Hotkey(0x54);
+            Wait(() => Window("Snapline Handle") != IntPtr.Zero && Window("Snapline") == IntPtr.Zero, "hide floating shelf exposes handle");
+            var beforeHandle = Native.Bounds(Window("Snapline Handle"));
+            Native.Drag((beforeHandle.Left + beforeHandle.Right) / 2, (beforeHandle.Top + beforeHandle.Bottom) / 2,
+                (beforeHandle.Left + beforeHandle.Right) / 2 - 220, (beforeHandle.Top + beforeHandle.Bottom) / 2 + 180);
+            Wait(() => Settings().GetProperty("HandlePosition").ValueKind == JsonValueKind.Object, "physical handle drag saves independent position");
+            var movedHandle = Native.Bounds(Window("Snapline Handle"));
+            Check(movedHandle.Left < beforeHandle.Left - 50 && movedHandle.Top > beforeHandle.Top + 50, "collapsed handle moves both axes");
+            Check(Window("Snapline") == IntPtr.Zero, "handle dragging does not accidentally open shelf");
+            Native.Click((movedHandle.Left + movedHandle.Right) / 2, (movedHandle.Top + movedHandle.Bottom) / 2);
+            Wait(() => Window("Snapline") != IntPtr.Zero, "moved handle still opens shelf with a click");
+            Check(SamePosition(movedShelf, Native.Bounds(Window("Snapline"))), "shelf keeps dragged position after hide/reveal");
+            Native.Hotkey(0x53);
+            Wait(() => Window("Snapline Capture") != IntPtr.Zero, "capture remains available from moved shelf");
+            Native.Key(0x1B);
+            Wait(() => Window("Snapline") != IntPtr.Zero && Window("Snapline Capture") == IntPtr.Zero, "capture cancel restores moved shelf");
+            Wait(() => SamePosition(movedShelf, Native.Bounds(Window("Snapline"))), "capture restoration respects dragged position");
+
             // Stop via the application's own WinForms tray menu, without traversing unrelated shell content.
             QuitViaTray();
             Check(app.WaitForExit(5000), "tray exit shuts down application");
             app = Process.Start(new ProcessStartInfo(exe) { ArgumentList = { "--e2e-data-dir", directory } })!;
             Wait(() => Window("Snapline") != IntPtr.Zero, "restart visibly opens shelf");
             Wait(() => Find(AutomationElement.FromHandle(Window("Snapline")), Path.GetFileName(Items().Single())) != null, "restart restores remaining thumbnail");
+            Wait(() => SamePosition(movedShelf, Native.Bounds(Window("Snapline"))), "restart restores saved shelf position");
+            Native.Hotkey(0x54);
+            Wait(() => Window("Snapline Handle") != IntPtr.Zero, "restart still exposes handle on hide");
+            Wait(() => SamePosition(movedHandle, Native.Bounds(Window("Snapline Handle"))), "restart restores saved handle position independently");
+            Native.OpenTrayMenu(app.Id); Thread.Sleep(400);
+            trayMenu = AutomationElement.FromHandle(Native.FindClass(app.Id, "WindowsForms10.Window"));
+            Check(Invoke(trayMenu, "重置组件位置"), "tray menu resets component positions");
+            Wait(() => Settings().GetProperty("ShelfPosition").ValueKind == JsonValueKind.Null
+                && Settings().GetProperty("HandlePosition").ValueKind == JsonValueKind.Null, "reset clears both saved placements");
+            Native.Message(app.Id, "Snapline.Messages", 0x8001, 0);
+            Wait(() => Window("Snapline") != IntPtr.Zero, "reset shelf can be shown");
+            var resetShelf = Native.Bounds(Window("Snapline"));
+            var screenBounds = Forms.Screen.PrimaryScreen!.Bounds;
+            Check(resetShelf.Left == screenBounds.Left && resetShelf.Top == screenBounds.Top,
+                "reset returns shelf to default top edge");
             QuitViaTray();
             Check(app.WaitForExit(5000), "second clean tray exit");
         }
@@ -246,6 +293,9 @@ internal static class Program
         Console.WriteLine($"{passed} E2E checks passed.");
         return failure == null ? 0 : 1;
     }
+
+    private static bool SamePosition(Native.Rect expected, Native.Rect actual) =>
+        Math.Abs(expected.Left - actual.Left) <= 3 && Math.Abs(expected.Top - actual.Top) <= 3;
 
     private static string SettingsPath => Path.Combine(directory, "settings.json");
     private static JsonElement Settings() { using var doc = JsonDocument.Parse(File.ReadAllText(SettingsPath)); return doc.RootElement.Clone(); }

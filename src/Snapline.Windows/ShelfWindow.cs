@@ -10,6 +10,7 @@ using System.Windows.Media.Effects;
 using System.Windows.Shapes;
 using System.Windows.Threading;
 using Forms = System.Windows.Forms;
+using Snapline.Core;
 
 namespace Snapline.Windows;
 
@@ -53,8 +54,14 @@ internal sealed class ShelfWindow : Window
         actions.Children.Add(Button("收起 ↑", "隐藏截图栏 · Ctrl+Alt+T", controller.Hide));
         DockPanel.SetDock(actions, Dock.Right);
         toolbar.Children.Add(actions);
-        var brand = new TextBlock { Text = "◈  SNAPLINE", Foreground = Brush("#75E5C2"), FontWeight = FontWeights.SemiBold, FontSize = 14, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(4, 0, 24, 0),
+        var brand = new TextBlock { Text = "⠿  SNAPLINE", Tag = "SnaplineGrip", ToolTip = "按住拖动截图栏位置（不是图片卡片）", Background = Brushes.Transparent, Foreground = Brush("#75E5C2"), FontWeight = FontWeights.SemiBold, FontSize = 14, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(4, 0, 24, 0),
             Effect = new DropShadowEffect { Color = Colors.Black, BlurRadius = 4, ShadowDepth = 1, Opacity = 0.9 } };
+        System.Windows.Automation.AutomationProperties.SetAutomationId(brand, "ShelfDragGrip");
+        _ = new ComponentDrag(this, brand, controller.BeginComponentMove, () =>
+        {
+            CurrentScreen = Forms.Screen.FromRectangle(Native.Bounds(new System.Windows.Interop.WindowInteropHelper(this).Handle));
+            controller.EndComponentMove(isShelf: true);
+        });
         DockPanel.SetDock(brand, Dock.Left);
         toolbar.Children.Add(brand);
         status.Text = "单击复制 · 双击预览 · 拖拽分享 · 右键更多";
@@ -116,7 +123,7 @@ internal sealed class ShelfWindow : Window
     {
         for (DependencyObject? node = hit; node != null; node = VisualTreeHelper.GetParent(node))
         {
-            if (node is Button || node is FrameworkElement { Tag: "SnaplineCard" }) return true;
+            if (node is Button || node is FrameworkElement { Tag: "SnaplineCard" or "SnaplineGrip" }) return true;
         }
         return false;
     }
@@ -229,13 +236,15 @@ internal sealed class ShelfWindow : Window
         return false;
     }
 
-    internal void Reveal(Forms.Screen screen)
+    internal void Reveal(Forms.Screen screen, WindowPosition? saved = null)
     {
         visibilityGeneration++;
-        CurrentScreen = screen; scale = Native.Scale(screen);
+        CurrentScreen = screen = WindowPlacement.Screen(saved, screen);
+        scale = Native.Scale(screen);
         Left = screen.Bounds.Left / scale;
         Top = screen.Bounds.Top / scale;
-        Width = screen.Bounds.Width / scale;
+        // A screen-wide window has no horizontal travel. Saved/moved shelves use a compact floating width.
+        Width = saved == null ? screen.Bounds.Width / scale : Math.Min(960, screen.WorkingArea.Width / scale);
         IsRevealed = true;
         if (!IsVisible) Show();
         // Always reset the transform, including a reveal arriving mid-conceal.
@@ -243,7 +252,11 @@ internal sealed class ShelfWindow : Window
         slide.BeginAnimation(TranslateTransform.YProperty, null);
         slide.Y = 0;
         // Position in physical pixels to handle negative monitor origins and mixed DPI correctly.
-        Native.Place(this, screen.Bounds.Left, screen.Bounds.Top, screen.Bounds.Width, (int)Math.Round(Height * scale));
+        var width = (int)Math.Round(Width * scale);
+        var height = (int)Math.Round(Height * scale);
+        var position = saved == null ? new System.Drawing.Point(screen.Bounds.Left, screen.Bounds.Top)
+            : WindowPlacement.Restore(saved, screen.WorkingArea, width, height);
+        Native.Place(this, position.X, position.Y, width, height);
         scroll.ScrollToLeftEnd();
     }
 
@@ -258,9 +271,14 @@ internal sealed class ShelfWindow : Window
         slide.BeginAnimation(TranslateTransform.YProperty, animation);
     }
 
+    internal void PrepareForMove()
+    {
+        slide.BeginAnimation(TranslateTransform.YProperty, null); slide.Y = 0;
+        Width = Math.Min(960, CurrentScreen.WorkingArea.Width / Native.Scale(CurrentScreen));
+    }
+
     internal bool ContainsCursor(System.Drawing.Point cursor) =>
-        cursor.X >= CurrentScreen.Bounds.Left && cursor.X < CurrentScreen.Bounds.Right
-        && cursor.Y >= CurrentScreen.Bounds.Top && cursor.Y < CurrentScreen.Bounds.Top + Height * scale;
+        Native.Bounds(new System.Windows.Interop.WindowInteropHelper(this).Handle).Contains(cursor);
 
     internal void SaveTestRender(string path)
     {
