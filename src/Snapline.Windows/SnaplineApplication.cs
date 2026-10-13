@@ -518,8 +518,9 @@ internal sealed class SnaplineApplication : IDisposable
         {
             var data = GroupCopyData(id);
             if (data == null) { Changed(); shelf.ShowStatus("截图组已变更"); return; }
+            var count = data.GetData(DataFormats.FileDrop) is string[] files ? files.Length : 0;
             Clipboard.SetDataObject(data, true); ownClipboardSequence = Native.GetClipboardSequenceNumber();
-            shelf.ShowStatus($"已复制整组 {groups.Get(id)!.Members.Count} 个图片文件");
+            shelf.ShowStatus($"已复制整组 {count} 个图片文件");
         }
         catch (ExternalException) { shelf.ShowStatus("剪贴板忙碌，请重试"); }
     }
@@ -564,7 +565,7 @@ internal sealed class SnaplineApplication : IDisposable
             }
             finally { source.GiveFeedback -= feedback; }
         }
-        catch (Exception e) when (e is IOException or UnauthorizedAccessException or NotSupportedException or ExternalException)
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException or NotSupportedException or ExternalException or FileFormatException)
         { shelf.ShowStatus("拖拽未完成，图片仍在栏中"); }
         finally { busy = false; }
     }
