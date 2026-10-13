@@ -26,6 +26,16 @@ Checks cover animation intermediate/final values, interrupted transitions, reduc
 new card visibility, actual shelf hide/recall and shared understandable logo/labels.
 Drag visual checks additionally verify source dimming/unclipping, input-transparent floating thumbnail,
 explicit cursor-position following, screen-edge flipping and dispose/exception restoration.
+Window pocket tests use generated own-process WPF windows (including unsaved textbox data), actual
+minimize/restore/placement APIs and process-scoped synthetic WinEvent notifications. No global/external
+window hooks are installed by verification. They cover card click, max-state/position restore, take-all,
+closed/reused-handle protection, owned-dialog rejection, cancellation/release and opt-out.
+0.1.9 additionally checks targets across the full rope, empty peg feedback, off-rope cancellation,
+readiness without animations, immediate release commit, long held-hover non-commit, and rejection of
+move-end while the left button is still held. The prior dwell-to-ready behavior is superseded.
+Window-pocket compatibility tests cover HTCLIENT/timeout caption-region policy, child-source normalization,
+pointer-follow fallback without move-start/end events and bounded release-state timing.
+Typed frame/clip materials will be validated in a separate feature PR.
 These in-process rendering/timeline checks are not an end-to-end user interaction test.
 As of 0.1.5, verification explicitly enables the per-app animation override, so intermediate-motion and hover
 assertions are not silently skipped when Windows animation is disabled. It separately verifies default
@@ -98,7 +108,18 @@ private markers beyond those covered, and multi-monitor/mixed-DPI combinations r
 - [ ] Drag both components to every work-area edge; verify taskbar remains accessible and reset recovers placement.
 - [ ] Full-screen non-sensitive app hides shelf; normal desktop reveals it again.
 - [ ] Hotkey collision has a tray notification and menu operations remain available.
-- [ ] Quit releases hotkeys/clipboard listener and leaves no process or tray icon.
+- [ ] Drag a non-sensitive standard-titlebar test app: rope auto-reveals; approach anywhere along rope shows peg/sag; release commits immediately.
+- [ ] Hold over rope for >2 seconds: no auto-stash; move away/release elsewhere/Esc clears preview without minimizing.
+- [ ] Restore via window card, taskbar, and take-all; unsaved test document stays intact.
+- [ ] Resize, body overlap, move cancelled by Esc, and feature disabled do not minimize another app.
+- [ ] Close a stashed test app, restart another app; stale card cannot activate reused HWND.
+- [ ] Exit/crash Snapline with a stashed test app: taskbar/Alt+Tab remains an independent recovery path.
+- [ ] Test File Explorer/Chrome/Edge/VS Code custom titlebars, maximized/snapped windows, multiple monitors and different DPI; document unsupported cases.
+- [ ] File Explorer test must use a newly generated empty directory. Do not inspect the user's existing windows/file lists or enumerate their folder paths.
+- [ ] If a fixture window cannot be identified uniquely, mark BLOCKED; never use a generic Explorer title or kill the explorer.exe process.
+- [ ] Diagnostic popup reports gate state only, no private title/path; no commit while held.
+- [ ] Elevated/system/dialog windows rejected, no elevation prompt or foreground-policy bypass.
+- [ ] Quit releases hotkeys/clipboard/WinEvent listeners and leaves no process or tray icon.
 
 Automated smoke success is not evidence that these interactive workflows or all
 Windows 10/11 configurations have been manually verified.

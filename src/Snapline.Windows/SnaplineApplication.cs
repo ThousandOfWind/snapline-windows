@@ -29,6 +29,8 @@ internal sealed class SnaplineApplication : IDisposable
     private readonly DispatcherTimer timer = new() { Interval = TimeSpan.FromMilliseconds(100) };
     private readonly ShelfWindow shelf;
     private readonly HandleWindow handle;
+    private readonly WindowPocketService windowPocket;
+    private WindowMoveWatcher? windowMove;
     private bool showAfterCapture;
     private HwndSource? messageWindow;
     private Forms.NotifyIcon? tray;
@@ -45,11 +47,12 @@ internal sealed class SnaplineApplication : IDisposable
     private bool clipboardRetryPending;
     private int tickCount;
 
-    internal SnaplineApplication(Application app, string directory, bool smoke, bool e2e = false)
+    internal SnaplineApplication(Application app, string directory, bool smoke, bool e2e = false, bool allowOwnPocketTests = false)
     {
         this.app = app;
         this.smoke = smoke;
         this.e2e = e2e;
+        windowPocket = new WindowPocketService(allowOwnTestWindows: allowOwnPocketTests && smoke);
         store = new SettingsStore(directory);
         settings = store.Load();
         Motion.Reduced = settings.ReduceMotion;
@@ -57,6 +60,11 @@ internal sealed class SnaplineApplication : IDisposable
         library = new ImageLibrary(settings.Capacity, settings.Items);
         shelf = new ShelfWindow(this);
         handle = new HandleWindow(() => Reveal(true), BeginComponentMove, () => EndComponentMove(isShelf: false));
+        windowPocket.Changed += () =>
+        {
+            shelf.RefreshWindows(windowPocket.Items);
+            if (!shelf.IsRevealed && !capturing && !busy && !smoke) ShowHandle();
+        };
     }
 
     internal void Start()
@@ -87,6 +95,20 @@ internal sealed class SnaplineApplication : IDisposable
             shelf.Refresh(library.Items);
             Reveal(true); // A launch must visibly confirm that the application is running.
             Save();
+        }
+        if (!smoke && !e2e)
+        {
+            windowMove = new WindowMoveWatcher(windowPocket,
+                point => !capturing && !busy && (handle.ContainsCursor(point) || shelf.WindowDropTarget(point)),
+                (moving, ready) =>
+                {
+                    // Present the actual rope as soon as a supported titlebar move starts; no hidden-icon hunt.
+                    if (moving && !capturing && !busy && !shelf.IsRevealed) Reveal(false);
+                    handle.WindowMoveHint(moving, ready); shelf.WindowMoveHint(moving, ready, windowMove?.MovingKind ?? HangingKind.Window);
+                },
+                text => { Reveal(true); shelf.ShowStatus(text); });
+            windowMove.Enabled = settings.StashWindows;
+            if (!windowMove.Start()) Notify("窗口拖入监听不可用，已跳过；截图功能仍可使用。");
         }
         timer.Tick += Tick;
         timer.Start();
@@ -156,6 +178,15 @@ internal sealed class SnaplineApplication : IDisposable
         menu.Items.Add("显示 / 隐藏截图栏    Ctrl+Alt+T", null, (_, _) => Toggle());
         menu.Items.Add("区域截图    Ctrl+Alt+S", null, (_, _) => _ = CaptureAsync());
         menu.Items.Add("添加图片…", null, (_, _) => ChooseImages());
+        var stashWindows = new Forms.ToolStripMenuItem("拖入软件窗口暂存") { Checked = settings.StashWindows, CheckOnClick = true };
+        stashWindows.CheckedChanged += (_, _) =>
+        {
+            settings.StashWindows = stashWindows.Checked; Save();
+            if (windowMove != null) { windowMove.Enabled = stashWindows.Checked; windowMove.Reset(); }
+        };
+        menu.Items.Add(stashWindows);
+        menu.Items.Add("取回全部暂存窗口", null, (_, _) => _ = TakeAllWindowsAsync());
+        menu.Items.Add("窗口暂存诊断…", null, (_, _) => MessageBox.Show(windowMove?.LastDiagnostic ?? "监听未启动或当前是隔离测试模式", "窗口暂存诊断"));
         menu.Items.Add(new Forms.ToolStripSeparator());
         var clipboard = new Forms.ToolStripMenuItem("监听剪贴板图片（可选）") { Checked = settings.WatchClipboard, CheckOnClick = true };
         clipboard.CheckedChanged += (_, _) => { settings.WatchClipboard = clipboard.Checked; SetClipboardListener(); Save(); };
@@ -189,7 +220,7 @@ internal sealed class SnaplineApplication : IDisposable
         menu.Items.Add("从栏中移除全部（不删除文件）", null, (_, _) => { library.Clear(); Changed(); });
         menu.Items.Add(new Forms.ToolStripSeparator());
         menu.Items.Add("关于 Snapline", null, (_, _) => MessageBox.Show(
-            "Snapline 0.1.7 · Windows 10/11\n\nCtrl+Alt+T：显示 / 隐藏\nCtrl+Alt+S：区域截图\n拖动左侧“Snapline / 拖动移动”或收起的小入口可移动组件\n单击复制 · 双击预览 · 拖拽发送文件\n右键菜单：另存为、打开、画图编辑、移除\n\n数据仅保存在本机，无网络、无分析。\n灵感来源：alejandrobujan/tendedero (MIT)。\n本项目使用独立名称和原创图标，与原作者无关联。", "关于 Snapline"));
+            "Snapline 0.1.9 · Windows 10/11\n\nCtrl+Alt+T：显示 / 隐藏\nCtrl+Alt+S：区域截图\n拖动左侧“Snapline / 拖动移动”或收起的小入口可移动组件\n单击复制 · 双击预览 · 拖拽发送文件\n右键菜单：另存为、打开、画图编辑、移除\n\n数据仅保存在本机，无网络、无分析。\n灵感来源：alejandrobujan/tendedero (MIT)。\n本项目使用独立名称和原创图标，与原作者无关联。", "关于 Snapline"));
         menu.Items.Add("退出", null, (_, _) => app.Shutdown());
         var executable = Environment.ProcessPath!;
         tray = new Forms.NotifyIcon
@@ -296,7 +327,7 @@ internal sealed class SnaplineApplication : IDisposable
     private void Changed()
     {
         shelf.Refresh(library.Items); Save();
-        if (!shelf.IsRevealed && !capturing && !smoke && !busy) handle.Reveal(shelf.CurrentScreen, library.Items.Count, settings.HandlePosition);
+        if (!shelf.IsRevealed && !capturing && !smoke && !busy) ShowHandle();
     }
     private void Save() { settings.Items = library.Items.ToList(); store.Save(settings); }
     internal void Remove(string path) { library.Remove(path); Changed(); }
@@ -304,8 +335,35 @@ internal sealed class SnaplineApplication : IDisposable
     {
         shelf.Conceal(); pinned = false; peekUntil = DateTime.MinValue;
         hotSince = DateTime.MinValue;
-        if (!capturing && !smoke) handle.Reveal(shelf.CurrentScreen, library.Items.Count, settings.HandlePosition);
+        if (!capturing && !smoke) ShowHandle();
     }
+    internal WindowPocketService PocketForVerification => windowPocket;
+
+    private void ShowHandle() => handle.Reveal(shelf.CurrentScreen, library.Items.Count, settings.HandlePosition, windowPocket.Items.Count);
+
+    internal async Task TakeWindowAsync(WindowIdentity identity)
+    {
+        if (busy || capturing) return;
+        busy = true;
+        try
+        {
+            var restored = await windowPocket.TakeAsync(identity);
+            if (restored) Hide();
+            shelf.ShowStatus(windowPocket.LastStatus);
+            if (restored && windowPocket.LastStatus.Contains("未允许", StringComparison.Ordinal)) Notify(windowPocket.LastStatus);
+        }
+        finally { busy = false; }
+    }
+
+    internal async Task TakeAllWindowsAsync()
+    {
+        if (busy || capturing) return;
+        busy = true;
+        try { await windowPocket.TakeAllAsync(); shelf.ShowStatus(windowPocket.LastStatus); }
+        finally { busy = false; }
+        if (!shelf.IsRevealed) ShowHandle();
+    }
+
     internal void Toggle()
     {
         if (capturing) { showAfterCapture = true; return; }
@@ -345,7 +403,7 @@ internal sealed class SnaplineApplication : IDisposable
 
     private void Tick(object? sender, EventArgs e)
     {
-        if (smoke || capturing || busy) return;
+        if (smoke || capturing || busy || windowMove?.IsMoving == true) return;
         var now = DateTime.UtcNow;
         var cursor = Native.Cursor;
         var screen = Forms.Screen.FromPoint(cursor);
@@ -359,7 +417,7 @@ internal sealed class SnaplineApplication : IDisposable
                 if ((now - awaySince).TotalMilliseconds > 650) Hide();
             }
         }
-        else if (settings.RevealAtTop && library.Items.Count > 0 && cursor.Y <= screen.Bounds.Top + 2)
+        else if (settings.RevealAtTop && (library.Items.Count > 0 || windowPocket.Items.Count > 0) && cursor.Y <= screen.Bounds.Top + 2)
         {
             if (hotSince == DateTime.MinValue) hotSince = now;
             if ((now - hotSince).TotalMilliseconds > 450) { Reveal(false); peekUntil = now.AddSeconds(1.2); }
@@ -367,6 +425,7 @@ internal sealed class SnaplineApplication : IDisposable
         else hotSince = DateTime.MinValue;
         if (++tickCount % 100 == 0)
         {
+            windowPocket.Prune();
             var count = library.Items.Count;
             library.Prune();
             if (library.Items.Count != count) Changed();
@@ -530,6 +589,9 @@ internal sealed class SnaplineApplication : IDisposable
     {
         disposed = true;
         timer.Stop();
+        windowMove?.Dispose();
+        windowPocket.Dispose();
+        // Pocketed apps remain ordinary minimized taskbar windows even if Snapline exits/crashes.
         foreach (var watcher in watchers) watcher.Dispose();
         if (messageWindow != null)
         {
