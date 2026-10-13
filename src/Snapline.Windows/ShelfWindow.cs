@@ -21,6 +21,20 @@ internal sealed class ShelfWindow : Window
     private readonly ScrollViewer scroll;
     private readonly DispatcherTimer statusTimer = new() { Interval = TimeSpan.FromSeconds(2) };
     private readonly Grid root;
+    private readonly Border brandGrip;
+    private readonly Grid ropeArea;
+    private readonly System.Windows.Shapes.Path rope;
+    private readonly TranslateTransform ropeOffset = new();
+    private readonly SpringMotion ropeDip;
+    private readonly Canvas ropeFeedback = new() { IsHitTestVisible = false };
+    private readonly Border emptyPeg;
+    private readonly Border dropLabel;
+    private bool nearRope;
+    private bool ropeHighlighted;
+    private Point ropePoint;
+    private readonly TextBlock welcome;
+    private string[] imagePaths = [];
+    private IReadOnlyList<PocketWindow> pocketItems = Array.Empty<PocketWindow>();
     private readonly Dictionary<string, FrameworkElement> cardViews = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, HangingCard> hanging = new(StringComparer.OrdinalIgnoreCase);
     private readonly HashSet<string> pendingEntry = new(StringComparer.OrdinalIgnoreCase);
@@ -66,6 +80,7 @@ internal sealed class ShelfWindow : Window
         var brand = new Border { Child = identity, Tag = "SnaplineGrip", ToolTip = "按住这里拖动截图栏；图片卡片拖动用于分享",
             Background = Brushes.Transparent, CornerRadius = new CornerRadius(12), Padding = new Thickness(3, 0, 8, 0),
             VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 20, 0) };
+        brandGrip = brand;
         System.Windows.Automation.AutomationProperties.SetAutomationId(brand, "ShelfDragGrip");
         _ = new ComponentDrag(this, brand, controller.BeginComponentMove, () =>
         {
@@ -78,10 +93,11 @@ internal sealed class ShelfWindow : Window
         status.Effect = new DropShadowEffect { Color = Colors.Black, BlurRadius = 4, ShadowDepth = 1, Opacity = 0.9 };
         toolbar.Children.Add(status);
         content.Children.Add(toolbar);
-        var area = new Grid();
+        var area = new Grid(); ropeArea = area;
         Grid.SetRow(area, 1);
-        var rope = new System.Windows.Shapes.Path { Stroke = Brush("#8CAA9B"), StrokeThickness = 1.3,
-            IsHitTestVisible = false, Tag = "SnaplineRope" };
+        rope = new System.Windows.Shapes.Path { Stroke = Brush("#8CAA9B"), StrokeThickness = 1.3,
+            IsHitTestVisible = false, Tag = "SnaplineRope", RenderTransform = ropeOffset };
+        ropeDip = new SpringMotion(ropeOffset, TranslateTransform.YProperty, 0);
         area.Children.Add(rope);
         area.SizeChanged += (_, _) =>
         {
@@ -104,6 +120,17 @@ internal sealed class ShelfWindow : Window
         };
         scroll.PreviewMouseWheel += (_, e) => { scroll.ScrollToHorizontalOffset(scroll.HorizontalOffset - e.Delta); e.Handled = true; };
         area.Children.Add(scroll);
+        emptyPeg = PaperStyle.Peg(14, 30); emptyPeg.Opacity = 0.9; emptyPeg.Tag = "WindowDropPeg";
+        ropeFeedback.Children.Add(emptyPeg);
+        dropLabel = new Border { Child = new TextBlock { Text = "松手挂上窗口", FontSize = 11, Foreground = Brush("#355748") },
+            CornerRadius = new CornerRadius(9), Background = Brush("#FBE4C4"), Padding = new Thickness(9, 5, 9, 5),
+            BorderBrush = Brush("#EAAF75"), BorderThickness = new Thickness(1) };
+        ropeFeedback.Children.Add(dropLabel); ropeFeedback.Visibility = Visibility.Hidden;
+        area.Children.Add(ropeFeedback);
+        welcome = new TextBlock { Text = "将软件标题栏拖到绳子上，松手挂好", FontSize = 11, Foreground = Brush("#668675"),
+            IsHitTestVisible = false, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Top,
+            Margin = new Thickness(0, 0, 0, 0) };
+        area.Children.Add(welcome);
         content.Children.Add(area);
         root.Children.Add(content);
         Content = root;
@@ -142,12 +169,24 @@ internal sealed class ShelfWindow : Window
     internal void Refresh(IReadOnlyList<string> paths)
     {
         if (cardDragging) { deferredPaths = paths.ToArray(); return; }
+        imagePaths = paths.ToArray();
         var offset = scroll.HorizontalOffset;
         var existing = new HashSet<string>(cardViews.Keys, StringComparer.OrdinalIgnoreCase);
         cards.Children.Clear();
         cardViews.Clear(); hanging.Clear();
         pendingEntry.IntersectWith(paths);
-        if (paths.Count == 0)
+        foreach (var window in pocketItems)
+        {
+            var key = WindowKey(window);
+            var card = CreateWindowCard(window, key);
+            cardViews[key] = card; cards.Children.Add(card);
+            if (!existing.Contains(key))
+            {
+                pendingEntry.Add(key);
+                if (IsRevealed) card.Loaded += (_, _) => { if (pendingEntry.Remove(key)) hanging[key].Hang(); };
+            }
+        }
+        if (paths.Count == 0 && pocketItems.Count == 0)
         {
             cards.Children.Add(new TextBlock
             {
@@ -176,6 +215,88 @@ internal sealed class ShelfWindow : Window
             }
         }
         scroll.ScrollToHorizontalOffset(offset);
+    }
+
+    internal void RefreshWindows(IReadOnlyList<PocketWindow> windows)
+    {
+        pocketItems = windows.ToArray(); Refresh(imagePaths);
+    }
+
+    internal bool WindowDropTarget(System.Drawing.Point cursor)
+    {
+        nearRope = false;
+        if (!IsVisible || !IsRevealed || ropeArea.ActualWidth <= 0) return false;
+        var local = ropeArea.PointFromScreen(new Point(cursor.X, cursor.Y));
+        var x = Math.Clamp(local.X, 8, Math.Max(8, ropeArea.ActualWidth - 8));
+        var t = x / ropeArea.ActualWidth;
+        var lineY = 17 + 36 * t * (1 - t); // Match the gentle cubic rope curve; ignore decorative motion for stable hit geometry.
+        nearRope = local.X >= 0 && local.X <= ropeArea.ActualWidth && Math.Abs(local.Y - lineY) <= 22;
+        ropePoint = new Point(x, lineY);
+        return nearRope;
+    }
+
+    internal void WindowMoveHint(bool moving, bool ready, HangingKind kind = HangingKind.Window)
+    {
+        brandGrip.Background = Brushes.Transparent;
+        welcome.Visibility = moving ? Visibility.Hidden : Visibility.Visible;
+        if (moving) status.Text = ready ? "松手挂上窗口 · 移开或 Esc 取消" : "将软件标题栏拖到整条晾衣绳，松手挂上";
+        else status.Text = "单击复制 · 双击预览 · 拖拽分享 · 右键更多";
+        var active = moving && ready && nearRope;
+        if (active != ropeHighlighted)
+        {
+            ropeHighlighted = active;
+            ropeDip.To(active ? 4 : 0, impulse: active ? 16 : 0, frequency: 22, damping: 0.48, duration: 0.45);
+            rope.Stroke = Brush(active ? "#EAAF75" : "#8CAA9B"); rope.StrokeThickness = active ? 2 : 1.3;
+        }
+        ropeFeedback.Visibility = active ? Visibility.Visible : Visibility.Hidden;
+        if (active)
+        {
+            Canvas.SetLeft(emptyPeg, ropePoint.X - 7); Canvas.SetTop(emptyPeg, ropePoint.Y - 9);
+            Canvas.SetLeft(dropLabel, Math.Clamp(ropePoint.X - 54, 0, Math.Max(0, ropeArea.ActualWidth - 120)));
+            Canvas.SetTop(dropLabel, ropePoint.Y + 28);
+        }
+        if (!moving) { nearRope = false; ropeDip.Reset(); }
+    }
+
+    internal System.Drawing.Point RopeTargetPoint(double fraction)
+    {
+        var width = ropeArea.ActualWidth;
+        var x = Math.Clamp(fraction, 0.05, 0.95) * width;
+        var t = x / width;
+        var point = ropeArea.PointToScreen(new Point(x, 17 + 36 * t * (1 - t)));
+        return new System.Drawing.Point((int)Math.Round(point.X), (int)Math.Round(point.Y));
+    }
+
+    internal bool RopeFeedbackVisible => ropeFeedback.Visibility == Visibility.Visible;
+
+    private static string WindowKey(PocketWindow window) => $"window:{window.Identity.Handle}:{window.Identity.ProcessStarted}";
+
+    private FrameworkElement CreateWindowCard(PocketWindow window, string key)
+    {
+        var card = new Grid { Width = 170, Height = 165, Margin = new Thickness(9, 15, 9, 0), Tag = "SnaplineCard",
+            ToolTip = "暂存的软件窗口：" + window.Title + " · 点击取回原窗口" };
+        var content = new StackPanel { Margin = new Thickness(8, 10, 8, 5) };
+        content.Children.Add(new TextBlock { Text = "窗口暂存", FontSize = 10, Foreground = Brush("#658572"), HorizontalAlignment = HorizontalAlignment.Center });
+        content.Children.Add(window.Icon == null ? Brand.Icon(42) : new Image { Source = window.Icon, Width = 42, Height = 42, Margin = new Thickness(0, 8, 0, 7) });
+        content.Children.Add(new TextBlock { Text = window.Title, FontSize = 11, Foreground = Brush("#355748"), TextTrimming = TextTrimming.CharacterEllipsis,
+            TextAlignment = TextAlignment.Center, Margin = new Thickness(0, 6, 0, 6) });
+        content.Children.Add(new TextBlock { Text = "点击取回 ↗", FontSize = 11, Foreground = Brush("#547161"), TextAlignment = TextAlignment.Center });
+        var restore = new Button { Content = content, Cursor = Cursors.Hand, Background = Brush("#F3FBF8"), BorderBrush = Brush("#C3D7CB"),
+            BorderThickness = new Thickness(1), Padding = new Thickness(2), Margin = new Thickness(0, 14, 0, 3), Template = PaperStyle.Template() };
+        System.Windows.Automation.AutomationProperties.SetName(restore, "取回窗口 " + window.Title);
+        System.Windows.Automation.AutomationProperties.SetAutomationId(restore, "RestoreWindow");
+        restore.Click += (_, _) => _ = controller.TakeWindowAsync(window.Identity);
+        card.Children.Add(restore);
+        var peg = PaperStyle.Peg(); peg.Tag = "SnaplinePeg";
+        peg.HorizontalAlignment = HorizontalAlignment.Center; peg.VerticalAlignment = VerticalAlignment.Top;
+        card.Children.Add(peg);
+        var movement = new HangingCard(card, peg, StableTilt(key)); hanging[key] = movement;
+        card.MouseEnter += (_, _) => movement.Hover(true); card.MouseLeave += (_, _) => movement.Hover(false);
+        var menu = new ContextMenu();
+        AddMenu(menu, "取回原窗口", () => _ = controller.TakeWindowAsync(window.Identity));
+        AddMenu(menu, "取回全部窗口", () => _ = controller.TakeAllWindowsAsync());
+        card.ContextMenu = menu;
+        return card;
     }
 
     private FrameworkElement CreateCard(string path, System.Windows.Media.Imaging.BitmapSource image)
@@ -339,6 +460,7 @@ internal sealed class ShelfWindow : Window
     internal void FinishMotion()
     {
         Motion.Reset(root, slide);
+        ropeDip.Reset();
         removalGeneration++; removing = false;
         foreach (var motion in hanging.Values) motion.Settle();
         ResetControlHover(this);

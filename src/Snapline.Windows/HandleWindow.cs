@@ -17,6 +17,7 @@ internal sealed class HandleWindow : Window
     private readonly Canvas visual;
     private readonly HoverMotion hover;
     private readonly HoverMotion countHover;
+    private readonly Border dropHint;
 
     internal HandleWindow(Action showShelf, Action moveStarted, Action moveFinished)
     {
@@ -44,6 +45,11 @@ internal sealed class HandleWindow : Window
             Padding = new Thickness(8, 4, 8, 4),
             Effect = new DropShadowEffect { Color = Color.FromRgb(30, 55, 43), BlurRadius = 5, ShadowDepth = 2, Opacity = 0.12 } };
         Canvas.SetLeft(count, 66); Canvas.SetTop(count, 26); visual.Children.Add(count);
+        dropHint = new Border { CornerRadius = new CornerRadius(12), Background = PaperStyle.Brush("#DAEDDF"),
+            BorderBrush = PaperStyle.Brush("#B2D3BD"), BorderThickness = new Thickness(1), Padding = new Thickness(7, 5, 7, 5),
+            Child = new TextBlock { Text = "拖到这里暂存", FontSize = 10, Foreground = PaperStyle.Brush("#355748") },
+            Visibility = Visibility.Hidden, IsHitTestVisible = false };
+        Canvas.SetLeft(dropHint, 4); Canvas.SetTop(dropHint, 12); visual.Children.Add(dropHint);
         var button = new Button
         {
             Content = visual, Background = Brushes.Transparent, BorderThickness = new Thickness(0),
@@ -64,10 +70,21 @@ internal sealed class HandleWindow : Window
         SourceInitialized += (_, _) => Native.MakeNonActivating(this);
     }
 
-    internal void Reveal(Forms.Screen screen, int count, WindowPosition? saved = null)
+    internal bool ContainsCursor(System.Drawing.Point cursor) => IsVisible
+        && Native.Bounds(new WindowInteropHelper(this).Handle).Contains(cursor);
+
+    internal void WindowMoveHint(bool moving, bool ready)
+    {
+        dropHint.Visibility = moving ? Visibility.Visible : Visibility.Hidden;
+        ((TextBlock)dropHint.Child).Text = ready ? "松手挂上窗口" : "拖到绳子上";
+        dropHint.Background = PaperStyle.Brush(ready ? "#FBE4C4" : "#DAEDDF");
+    }
+
+    internal void Reveal(Forms.Screen screen, int count, WindowPosition? saved = null, int windowCount = 0)
     {
         screen = WindowPlacement.Screen(saved, screen);
-        caption.Text = $"{count} 张";
+        Width = windowCount == 0 ? 120 : 160;
+        caption.Text = windowCount == 0 ? $"{count} 张" : $"{count} 图 · {windowCount} 窗";
         var opening = !IsVisible;
         var scale = Native.Scale(screen);
         if (!IsVisible) Show();

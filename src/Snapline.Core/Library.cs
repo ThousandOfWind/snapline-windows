@@ -9,6 +9,7 @@ public sealed class Preferences
     public bool PeekOnNew { get; set; } = true;
     public bool ReduceMotion { get; set; }
     public bool OverrideSystemAnimations { get; set; }
+    public bool StashWindows { get; set; } = true;
     public int Capacity { get; set; } = 50;
     public bool WatchFoldersInitialized { get; set; }
     public List<string> WatchFolders { get; set; } = [];

@@ -112,15 +112,31 @@ internal static class MotionVerification
             host.Hide();
 
             var data = Path.Combine(output, "isolated-data");
-            var app = new SnaplineApplication(Application.Current, data, smoke: true);
+            var app = new SnaplineApplication(Application.Current, data, smoke: true, allowOwnPocketTests: true);
             app.Start();
             try
             {
                 var shelf = Application.Current.Windows.OfType<ShelfWindow>().Single();
+                await WindowPocketVerification.RunAsync(app, shelf, Check, Path.Combine(output, "hanging-types.png"));
                 Motion.Reduced = false; Motion.OverrideSystem = true;
                 shelf.Reveal(Forms.Screen.PrimaryScreen!);
                 await Task.Delay(250);
                 shelf.SaveTestRender(Path.Combine(output, "shelf.png"));
+                foreach (var fraction in new[] { 0.15, 0.5, 0.85 })
+                    Check(shelf.WindowDropTarget(shelf.RopeTargetPoint(fraction)), $"rope accepts window approach at {fraction:P0}, not only Logo");
+                var ropeCenter = shelf.RopeTargetPoint(0.5);
+                shelf.WindowDropTarget(ropeCenter); shelf.WindowMoveHint(true, true);
+                Check(shelf.RopeFeedbackVisible, "window approach shows empty peg and release label immediately");
+                await Task.Delay(300);
+                shelf.SaveTestRender(Path.Combine(output, "rope-target.png"));
+                var offRope = new System.Drawing.Point(ropeCenter.X, ropeCenter.Y + 100);
+                Check(!shelf.WindowDropTarget(offRope), "window body below rope is outside reception strip");
+                shelf.WindowMoveHint(true, false);
+                Check(!shelf.RopeFeedbackVisible, "moving away clears ready peg without stashing");
+                Motion.Reduced = true;
+                shelf.WindowDropTarget(ropeCenter); shelf.WindowMoveHint(true, true);
+                Check(shelf.RopeFeedbackVisible, "rope readiness remains discoverable even with reduced motion");
+                shelf.WindowMoveHint(false, false); Motion.Reduced = false;
                 var captureButton = Descendants(shelf).OfType<Button>().Single(b => System.Windows.Automation.AutomationProperties.GetName(b) == "截图");
                 var feedback = PaperStyle.Feedback(captureButton);
                 Check(feedback != null, "paper action button has loaded hover animation binding");
@@ -215,7 +231,7 @@ internal static class MotionVerification
             foreach (var window in windows) window.Close();
             Motion.Reduced = false; Motion.OverrideSystem = false;
             File.WriteAllText(Path.Combine(output, "motion-report.json"), JsonSerializer.Serialize(new
-            { passed = checks.Count, checks, failure, spatialAnimationsExplicitlyTested = true, systemAnimationsEnabled = SystemParameters.ClientAreaAnimation, actualDesktopCaptured = false, clipboardAccessed = false, inputInjected = false }, new JsonSerializerOptions { WriteIndented = true }));
+            { passed = checks.Count, checks, failure, spatialAnimationsExplicitlyTested = true, systemAnimationsEnabled = SystemParameters.ClientAreaAnimation, windowPocketTests = "synthetic fixtures with own-process-only WinEvent hooks; no external app observation", actualDesktopCaptured = false, clipboardAccessed = false, inputInjected = false }, new JsonSerializerOptions { WriteIndented = true }));
         }
         return failure == null;
     }

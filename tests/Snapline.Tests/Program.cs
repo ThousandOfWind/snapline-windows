@@ -39,6 +39,33 @@ try
     Check(restored.Items.Count == 1, "restore ignores duplicate and missing files");
     var store = new SettingsStore(Path.Combine(directory, "data"));
     Check(!store.Load().WatchClipboard, "clipboard is opt-in");
+    var pocket = new WindowPocket(2);
+    var firstWindow = new WindowIdentity(100, 1, 2, 10);
+    var secondWindow = new WindowIdentity(200, 1, 3, 10);
+    Check(pocket.Add(firstWindow), "session pocket accepts valid window identity");
+    Check(!pocket.Add(firstWindow) && pocket.Count == 1, "pocket deduplicates same instance");
+    Check(pocket.Add(secondWindow) && !pocket.CanAdd(new WindowIdentity(300, 2, 3, 20)), "full pocket refuses without evicting a live window");
+    Check(!pocket.Add(default), "pocket rejects empty handle identity");
+    Check(!pocket.Contains(firstWindow with { ProcessStarted = 99 }), "process restart cannot match saved session identity");
+    Check(pocket.Remove(firstWindow) && pocket.Count == 1, "taking window removes only requested identity");
+    Check(WindowDropPolicy.Accept(true, true, false, true, true, true), "deliberate titlebar release on rope accepted without dwell");
+    Check(!WindowDropPolicy.Accept(true, true, true, true, true, true), "cancelled window move rejected");
+    Check(!WindowDropPolicy.Accept(true, true, false, false, true, true), "resize/no-position-change is not a drop");
+    Check(!WindowDropPolicy.Accept(true, true, false, true, false, true), "window body overlap alone not accepted");
+    Check(!WindowDropPolicy.Accept(true, true, false, true, true, false), "cursor outside title region rejected");
+    Check(!WindowDropPolicy.Accept(false, true, false, true, true, true), "disabled stash never accepts");
+    Check(!WindowDropPolicy.Accept(true, false, false, true, true, true), "ineligible source never accepts");
+    Check(WindowDragStartPolicy.Accept(1, 150, 25, 500, 1, true), "modern HTCLIENT title region accepted after native move start");
+    Check(WindowDragStartPolicy.Accept(null, 150, 25, 500, 1, true), "bounded hit-test timeout can use validated header geometry");
+    Check(!WindowDragStartPolicy.Accept(10, 150, 25, 500, 1, true), "resize hit cannot be reclassified as caption drag");
+    Check(!WindowDragStartPolicy.Accept(8, 150, 25, 500, 1, true), "minimize-button hit excluded from drag");
+    Check(!WindowDragStartPolicy.Accept(1, 2, 25, 500, 1, true), "header edge resize rejected even on custom client hit");
+    Check(!WindowDragStartPolicy.Accept(1, 150, 180, 500, 1, true), "body click cannot arm fallback drag");
+    Check(!WindowDragStartPolicy.Accept(2, 150, 25, 500, 1, false), "keyboard move cannot masquerade as mouse drag");
+    Check(WindowDragFallbackPolicy.Accept(true, true, 500, 300, 500, 300, 45, 35, 45, 35, 1), "fallback requires window following held pointer");
+    Check(!WindowDragFallbackPolicy.Accept(true, true, 500, 300, 550, 300, 45, 35, 45, 35, 1), "fallback excludes resizing");
+    Check(!WindowDragFallbackPolicy.Accept(true, true, 500, 300, 500, 300, 45, 35, 0, 0, 1), "programmatic move without pointer motion excluded");
+    Check(!WindowDragFallbackPolicy.Accept(true, false, 500, 300, 500, 300, 45, 35, 45, 35, 1), "fallback rechecks source identity");
     var springStart = SpringCurve.Sample(4, 10, 0, 0, 16, 0.28);
     Check(Math.Abs(springStart.Position - 4) < 1e-8 && Math.Abs(springStart.Velocity - 10) < 1e-8, "spring preserves initial position and momentum");
     var firstSwing = SpringCurve.Sample(0, 72, 0, 0.1, 16, 0.28).Position;
@@ -57,9 +84,10 @@ try
     Check(PlacementMath.Offset(0.5, -20) == 0, "oversized component remains anchored on small monitor");
     Check(PlacementMath.Relative(200, 400) == 0.5 && PlacementMath.Relative(200, 0) == 0, "relative position handles zero travel");
     Check(!store.Load().ReduceMotion, "motion preference defaults compatibly");
+    Check(store.Load().StashWindows, "requested window-stash feature enabled by default");
     Check(!store.Load().OverrideSystemAnimations, "system animation preference is respected by default");
     Check(store.Load().ShelfPosition == null && store.Load().HandlePosition == null, "older settings retain default component positions");
-    var preferences = new Preferences { WatchClipboard = true, ReduceMotion = true, OverrideSystemAnimations = true, Items = [a], WatchFolders = [directory],
+    var preferences = new Preferences { WatchClipboard = true, ReduceMotion = true, OverrideSystemAnimations = true, StashWindows = false, Items = [a], WatchFolders = [directory],
         ShelfPosition = new WindowPosition { Screen = "test-monitor", X = 0.25, Y = 0.5 },
         HandlePosition = new WindowPosition { Screen = "test-monitor", X = 0.75, Y = 0.125 } };
     store.Save(preferences);
@@ -67,6 +95,7 @@ try
     Check(loaded.WatchClipboard && loaded.Items.Single() == a && loaded.WatchFolders.Single() == directory, "settings round trip");
     Check(loaded.ReduceMotion, "reduced motion preference persists");
     Check(loaded.OverrideSystemAnimations, "explicit application animation override persists");
+    Check(!loaded.StashWindows, "window-stash opt-out persists");
     Check(loaded.ShelfPosition?.X == 0.25 && loaded.ShelfPosition.Y == 0.5 && loaded.HandlePosition?.Y == 0.125, "independent component positions persist");
     Check(!File.Exists(store.SettingsPath + ".tmp"), "atomic settings save leaves no temporary file");
     File.WriteAllText(store.SettingsPath, "{broken json");
