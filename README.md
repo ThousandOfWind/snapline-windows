@@ -13,7 +13,7 @@
 
 **[下载 Windows x64 免安装版](https://github.com/ThousandOfWind/snapline-windows/releases/latest)** — 解压 ZIP 后运行 `Snapline.exe`。
 
-- Windows 10/11，当前开发版 **0.1.11**（公开 Release 仍是 0.1.10）。
+- Windows 10/11，当前版本 **0.1.11**。
 - 本地免安装程序：`artifacts\Snapline-win-x64\Snapline.exe`。
 - 可分发压缩包：`artifacts\Snapline-win-x64.zip`。解压后运行 `Snapline.exe`。
 - 自包含包不要求预先安装 .NET，不需要管理员权限。
@@ -177,7 +177,9 @@ cd snapline-windows
 ```
 
 测试程序无需第三方测试框架：`dotnet run --project tests/Snapline.Tests -c Release`。
-GitHub Actions 在 Windows 构建并提供 ZIP artifact，不自动发布或部署。
+GitHub Actions 的 Build Windows 提供验证用 ZIP artifact。Release Windows 在推送版本标签或手动选择已有标签时，
+验证标签/合并来源、测试、打包、校验 EXE 启动，随后发布下载包与 SHA256/源码 manifest；不部署应用。
+流程见 [docs/RELEASING.md](docs/RELEASING.md)。
 
 ### 项目内测试 skill
 

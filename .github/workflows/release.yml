@@ -1,0 +1,165 @@
+name: Release Windows
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Existing tag on main, e.g. v0.1.11 (must match project Version)'
+        required: true
+        type: string
+  pull_request:
+    paths:
+      - '.github/workflows/release.yml'
+      - 'scripts/Release-*.ps1'
+      - 'scripts/Test-Release.ps1'
+      - 'src/Snapline.Windows/Snapline.Windows.csproj'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  package:
+    # Manual publication must be dispatched using the main workflow, not an unmerged feature workflow.
+    if: github.event_name != 'workflow_dispatch' || github.ref == 'refs/heads/main'
+    runs-on: windows-latest
+    outputs:
+      tag: ${{ steps.validate.outputs.tag }}
+      version: ${{ steps.validate.outputs.version }}
+      commit: ${{ steps.validate.outputs.commit }}
+      prerelease: ${{ steps.validate.outputs.prerelease }}
+      is_release: ${{ steps.validate.outputs.is_release }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+      - name: Validate tag, version and merged-main ancestry
+        id: validate
+        shell: pwsh
+        env:
+          EVENT_KIND: ${{ github.event_name }}
+          REQUESTED_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $release = $env:EVENT_KIND -ne 'pull_request'
+          if ($release) {
+            $info = ./scripts/Release-Validate.ps1 -Tag $env:REQUESTED_TAG -RequireGitTag
+          } else {
+            [xml]$project = Get-Content ./src/Snapline.Windows/Snapline.Windows.csproj -Raw
+            $info = ./scripts/Release-Validate.ps1 -Tag ('v' + $project.Project.PropertyGroup.Version)
+          }
+          "tag=$($info.tag)" >> $env:GITHUB_OUTPUT
+          "version=$($info.version)" >> $env:GITHUB_OUTPUT
+          "commit=$($info.commit)" >> $env:GITHUB_OUTPUT
+          "prerelease=$($info.prerelease.ToString().ToLowerInvariant())" >> $env:GITHUB_OUTPUT
+          "is_release=$($release.ToString().ToLowerInvariant())" >> $env:GITHUB_OUTPUT
+      - name: Test validation and build self-contained package
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          ./scripts/Test-Release.ps1
+          New-Item -ItemType Directory -Force artifacts/release | Out-Null
+          ./scripts/Build.ps1 -OutputDirectory artifacts/release/Snapline-win-x64 | Tee-Object artifacts/release/build.log
+      - name: Verify this EXE starts with synthetic data
+        shell: pwsh
+        env:
+          RELEASE_VERSION: ${{ steps.validate.outputs.version }}
+        run: |
+          ./scripts/Release-Smoke.ps1 -Executable artifacts/release/Snapline-win-x64/Snapline.exe -Version $env:RELEASE_VERSION -ReportPath artifacts/release/startup-report.json
+      - name: Write checksums and provenance
+        shell: pwsh
+        env:
+          RELEASE_TAG: ${{ steps.validate.outputs.tag }}
+          RELEASE_COMMIT: ${{ steps.validate.outputs.commit }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $zip = Get-FileHash artifacts/release/Snapline-win-x64.zip -Algorithm SHA256
+          $exe = Get-FileHash artifacts/release/Snapline-win-x64/Snapline.exe -Algorithm SHA256
+          ($zip.Hash.ToLowerInvariant() + '  Snapline-win-x64.zip') | Set-Content artifacts/release/SHA256SUMS.txt -Encoding ascii
+          $log = Get-Content artifacts/release/build.log -Raw
+          $match = [regex]::Match($log, '(?m)(\d+) tests passed\.')
+          if (-not $match.Success) { throw 'Cannot identify core-test result; refusing to publish.' }
+          [ordered]@{
+            tag = $env:RELEASE_TAG; commit = $env:RELEASE_COMMIT; runtime = 'win-x64'
+            coreTestsPassed = [int]$match.Groups[1].Value; startupSmoke = 'pass'
+            physicalE2E = 'not_run'; isolatedMotionChecks = 'not_run_in_CI'
+            archiveSha256 = $zip.Hash.ToLowerInvariant(); executableSha256 = $exe.Hash.ToLowerInvariant()
+            unsigned = $true
+          } | ConvertTo-Json | Set-Content artifacts/release/release-manifest.json -Encoding utf8
+          @"
+          ZIP SHA256: ``$($zip.Hash.ToLowerInvariant())``
+          Source commit: ``$env:RELEASE_COMMIT``
+          Core tests: $($match.Groups[1].Value) passed. Synthetic EXE startup/shutdown passed.
+          Physical UI E2E, multi-file receipt in other apps and mixed-DPI interactions were not run by this pipeline.
+          The executable is unsigned; follow Windows/organization safety policy.
+          "@ | Set-Content artifacts/release/verification-notes.md -Encoding utf8
+      - name: Prepare version notes
+        shell: pwsh
+        env:
+          RELEASE_TAG: ${{ steps.validate.outputs.tag }}
+        run: |
+          $notes = "docs/releases/$env:RELEASE_TAG.md"
+          if (Test-Path $notes) { Copy-Item $notes artifacts/release/release-notes.md }
+          else { "Snapline $env:RELEASE_TAG — portable Windows x64 build. See the repository README for features and limitations." | Set-Content artifacts/release/release-notes.md -Encoding utf8 }
+          Add-Content artifacts/release/release-notes.md "`n## Pipeline verification`n"
+          Get-Content artifacts/release/verification-notes.md -Raw | Add-Content artifacts/release/release-notes.md
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-package
+          path: |
+            artifacts/release/Snapline-win-x64.zip
+            artifacts/release/SHA256SUMS.txt
+            artifacts/release/release-manifest.json
+            artifacts/release/startup-report.json
+            artifacts/release/release-notes.md
+          if-no-files-found: error
+
+  publish:
+    if: github.event_name != 'pull_request' && needs.package.outputs.is_release == 'true'
+    needs: package
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: release-package
+          path: package
+      - name: Create release without replacing existing assets
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ needs.package.outputs.tag }}
+          PRE_RELEASE: ${{ needs.package.outputs.prerelease }}
+          SOURCE_COMMIT: ${{ needs.package.outputs.commit }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if gh release view "$RELEASE_TAG" --repo "$GH_REPO" --json tagName >/dev/null 2>release-view.err; then
+            echo "Release already exists; leaving notes/assets unchanged."
+            exit 0
+          fi
+          if ! grep -Eiq 'not found|HTTP 404' release-view.err; then
+            echo "Cannot safely determine release existence; refusing to publish."
+            exit 1
+          fi
+          remote_commit=$(gh api "repos/$GH_REPO/commits/$RELEASE_TAG" --jq '.sha')
+          if [ "$remote_commit" != "$SOURCE_COMMIT" ]; then
+            echo "Tag changed after package build; refusing mismatched publication."
+            exit 1
+          fi
+          args=()
+          if [ "$PRE_RELEASE" = "true" ]; then args+=(--prerelease); fi
+          gh release create "$RELEASE_TAG" --repo "$GH_REPO" --verify-tag --title "Snapline ${RELEASE_TAG#v}" \
+            --notes-file package/release-notes.md "${args[@]}" \
+            package/Snapline-win-x64.zip package/SHA256SUMS.txt package/release-manifest.json package/startup-report.json

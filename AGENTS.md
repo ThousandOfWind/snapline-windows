@@ -11,6 +11,14 @@
 - Creating/merging PRs, pushing and publishing still require user authorization. An authorized feature request alone is not blanket permission for future releases.
 - Release only from merged `main` / an exact tagged commit. Build and verify the actual release EXE; do not substitute an older binary or dirty-build evidence.
 
+## Release automation
+
+- Follow `docs/RELEASING.md`. Release workflow supports tags `v*` and manual main dispatch with an existing tag; version must match the project.
+- Tag only merged main commits; never rewrite a published tag or overwrite existing Release assets to get around validation.
+- Pipeline/script/version-note changes use their own scoped PR. Publish only with user authorization.
+- Use GitHub's scoped workflow token, never a new PAT or credential migration. Build has read-only contents permissions; publish alone requests write.
+- Core/build/synthetic startup results are not physical E2E. Record any extra motion/interaction verification against the actual published EXE separately.
+
 ## Testing and evidence
 
 - For a feature/fix/test task, read `.pi/skills/snapline-test/SKILL.md` and use its layered workflow/result template.
