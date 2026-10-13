@@ -14,6 +14,7 @@ public sealed class Preferences
     public bool WatchFoldersInitialized { get; set; }
     public List<string> WatchFolders { get; set; } = [];
     public List<string> Items { get; set; } = [];
+    public List<ScreenshotGroup> Groups { get; set; } = [];
     public WindowPosition? ShelfPosition { get; set; }
     public WindowPosition? HandlePosition { get; set; }
 }
@@ -77,6 +78,7 @@ public sealed class SettingsStore(string directory)
             value.Capacity = Math.Clamp(value.Capacity, 1, 100);
             value.Items ??= [];
             value.WatchFolders ??= [];
+            value.Groups ??= [];
             return value;
         }
         catch (JsonException) { return new Preferences(); }

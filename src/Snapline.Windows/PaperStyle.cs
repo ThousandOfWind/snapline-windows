@@ -87,6 +87,14 @@ internal static class PaperStyle
     {
         if (kind == HangingKind.Image) return Peg();
         var theme = HangingTheme.For(kind);
+        if (kind == HangingKind.ImageGroup)
+        {
+            var band = new Grid { IsHitTestVisible = false };
+            band.Children.Add(new Border { Width = 14, Height = 2, Background = Brush("#EADFF4"), VerticalAlignment = VerticalAlignment.Top, Margin = new Thickness(0, 7, 0, 0) });
+            band.Children.Add(new Border { Width = 14, Height = 2, Background = Brush("#EADFF4"), VerticalAlignment = VerticalAlignment.Bottom, Margin = new Thickness(0, 0, 0, 7) });
+            return new Border { Width = 22, Height = 25, CornerRadius = new CornerRadius(4), Background = Brush(theme.Clip),
+                BorderBrush = Brush(theme.Edge), BorderThickness = new Thickness(1), Child = band, IsHitTestVisible = false };
+        }
         var details = new Grid { IsHitTestVisible = false };
         var wire = new Path { Data = Geometry.Parse("M4,14 L4,6 C4,-1 14,-1 14,6 L14,14"),
             Stroke = Brush(kind == HangingKind.Window ? "#EAF2F7" : "#FFF0C2"), StrokeThickness = 1.5,

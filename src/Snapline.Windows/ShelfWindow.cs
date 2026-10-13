@@ -12,7 +12,7 @@ using Snapline.Core;
 
 namespace Snapline.Windows;
 
-internal sealed class ShelfWindow : Window
+internal sealed partial class ShelfWindow : Window
 {
     private readonly SnaplineApplication controller;
     private readonly StackPanel cards = new() { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Center };
@@ -196,24 +196,25 @@ internal sealed class ShelfWindow : Window
                 Foreground = Brush("#A9BBC8"), FontSize = 17, Margin = new Thickness(20, 55, 20, 20)
             });
         }
-        else foreach (var path in paths.Reverse())
+        else
         {
-            if (!ImageIO.TryLoad(path, out var image)) continue;
-            var card = CreateCard(path, image!);
-            cardViews[path] = card;
-            cards.Children.Add(card);
-            if (!existing.Contains(path))
+            var rendered = new HashSet<Guid>();
+            foreach (var path in paths.Reverse())
             {
-                pendingEntry.Add(path);
-                if (IsRevealed)
+                var group = controller.ImageGroupFor(path);
+                if (group != null)
                 {
-                    var motion = hanging[path];
-                    card.Loaded += (_, _) =>
-                    {
-                        if (IsRevealed && pendingEntry.Remove(path)) motion.Hang();
-                    };
+                    if (!rendered.Add(group.Id)) continue;
+                    var key = GroupKey(group.Id);
+                    var groupedCard = CreateGroupCard(group, key);
+                    AddImageView(key, groupedCard, existing);
+                    if (expandedGroups.Contains(group.Id))
+                        foreach (var member in group.Members)
+                            if (ImageIO.TryLoad(member, out var childImage)) AddImageView(member, CreateCard(member, childImage!), existing);
                 }
+                else if (ImageIO.TryLoad(path, out var image)) AddImageView(path, CreateCard(path, image!), existing);
             }
+            expandedGroups.RemoveWhere(id => !rendered.Contains(id));
         }
         scroll.ScrollToHorizontalOffset(offset);
     }
@@ -380,45 +381,11 @@ internal sealed class ShelfWindow : Window
         AddMenu(menu, "在资源管理器中显示", () => SnaplineApplication.RevealFile(path));
         menu.Items.Add(new Separator());
         AddMenu(menu, "从栏中移除（保留文件）", () => ReleaseCard(path));
+        var membership = controller.ImageGroupFor(path);
+        if (membership != null) AddMenu(menu, "移出截图组（保留图片）", () => controller.TakeOutImage(membership.Id, path));
         card.ContextMenu = menu;
-
-        Point start = default;
-        var dragging = false;
-        var doubleClicked = false;
-        var armed = false;
-        DispatcherTimer? clickTimer = null;
-        card.MouseLeftButtonDown += (_, e) =>
-        {
-            if (e.OriginalSource is Button || IsButtonAncestor(e.OriginalSource as DependencyObject)) return;
-            start = e.GetPosition(card); dragging = false; armed = true; doubleClicked = e.ClickCount == 2;
-            if (!doubleClicked) card.CaptureMouse();
-            if (doubleClicked) { clickTimer?.Stop(); controller.Preview(path); e.Handled = true; }
-        };
-        card.MouseMove += (_, e) =>
-        {
-            if (!armed || e.LeftButton != MouseButtonState.Pressed || dragging || IsButtonAncestor(e.OriginalSource as DependencyObject)) return;
-            var current = e.GetPosition(card);
-            if (Math.Abs(current.X - start.X) < SystemParameters.MinimumHorizontalDragDistance
-                && Math.Abs(current.Y - start.Y) < SystemParameters.MinimumVerticalDragDistance) return;
-            dragging = true; armed = false; clickTimer?.Stop(); card.ReleaseMouseCapture();
-            cardDragging = true; movement.SetDragging(true);
-            try { controller.Drag(card, path); }
-            finally
-            {
-                movement.SetDragging(false); cardDragging = false;
-                if (deferredPaths != null) { var paths = deferredPaths; deferredPaths = null; Refresh(paths); }
-            }
-        };
-        card.MouseLeftButtonUp += (_, e) =>
-        {
-            if (!armed || dragging || doubleClicked || e.Handled || IsButtonAncestor(e.OriginalSource as DependencyObject)) return;
-            armed = false; card.ReleaseMouseCapture();
-            clickTimer?.Stop();
-            clickTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(Forms.SystemInformation.DoubleClickTime) };
-            clickTimer.Tick += (_, _) => { clickTimer.Stop(); controller.Copy(path); };
-            clickTimer.Start();
-        };
-        card.LostMouseCapture += (_, _) => { armed = false; };
+        BindImageActions(card, () => new[] { path }, movement, () => controller.Copy(path), () => controller.Preview(path));
+        BindGroupDrop(card, frame, path);
         return card;
     }
 

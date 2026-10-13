@@ -17,16 +17,16 @@ internal sealed class DragVisualSession : IDisposable
     private bool disposed;
     internal DragPreviewWindow Preview { get; }
 
-    internal DragVisualSession(FrameworkElement source, BitmapSource image)
+    internal DragVisualSession(FrameworkElement source, BitmapSource image, int count = 1, bool keepSourceHitTarget = false)
     {
         this.source = source; opacity = source.Opacity; hitTest = source.IsHitTestVisible;
         peg = FindPeg(source); pegVisibility = peg?.Visibility ?? Visibility.Visible;
-        Preview = new DragPreviewWindow(image);
+        Preview = new DragPreviewWindow(image, count);
         try
         {
             // Reveal the "unclipped" photo at the cursor; leave a faint placeholder on the rope.
             source.BeginAnimation(UIElement.OpacityProperty, null); source.Opacity = 0.3;
-            source.IsHitTestVisible = false;
+            source.IsHitTestVisible = keepSourceHitTarget && hitTest; // In-app grouping must reject a self-drop instead of exposing the app underneath.
             if (peg != null) peg.Visibility = Visibility.Hidden;
             Preview.Start();
         }

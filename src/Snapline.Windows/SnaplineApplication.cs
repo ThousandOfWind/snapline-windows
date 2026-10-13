@@ -22,6 +22,8 @@ internal sealed class SnaplineApplication : IDisposable
     private readonly SettingsStore store;
     private readonly Preferences settings;
     private readonly ImageLibrary library;
+    private readonly ImageGroups groups;
+    private bool groupedDuringDrag;
     private readonly bool smoke;
     private readonly bool e2e;
     private readonly List<FileSystemWatcher> watchers = [];
@@ -58,6 +60,7 @@ internal sealed class SnaplineApplication : IDisposable
         Motion.Reduced = settings.ReduceMotion;
         Motion.OverrideSystem = settings.OverrideSystemAnimations;
         library = new ImageLibrary(settings.Capacity, settings.Items);
+        groups = new ImageGroups(settings.Groups, library.Items);
         shelf = new ShelfWindow(this);
         handle = new HandleWindow(() => Reveal(true), BeginComponentMove, () => EndComponentMove(isShelf: false));
         windowPocket.Changed += () =>
@@ -217,10 +220,10 @@ internal sealed class SnaplineApplication : IDisposable
         menu.Items.Add("管理监听目录…", null, (_, _) => ManageFolders());
         menu.Items.Add("重置组件位置", null, (_, _) => ResetComponentPositions());
         menu.Items.Add("打开本地收件箱", null, (_, _) => Open(store.InboxPath));
-        menu.Items.Add("从栏中移除全部（不删除文件）", null, (_, _) => { library.Clear(); Changed(); });
+        menu.Items.Add("从栏中移除全部（不删除文件）", null, (_, _) => { library.Clear(); groups.Clear(); Changed(); });
         menu.Items.Add(new Forms.ToolStripSeparator());
         menu.Items.Add("关于 Snapline", null, (_, _) => MessageBox.Show(
-            "Snapline 0.1.10 · Windows 10/11\n\nCtrl+Alt+T：显示 / 隐藏\nCtrl+Alt+S：区域截图\n拖动左侧“Snapline / 拖动移动”或收起的小入口可移动组件\n单击复制 · 双击预览 · 拖拽发送文件\n右键菜单：另存为、打开、画图编辑、移除\n\n数据仅保存在本机，无网络、无分析。\n灵感来源：alejandrobujan/tendedero (MIT)。\n本项目使用独立名称和原创图标，与原作者无关联。", "关于 Snapline"));
+            "Snapline 0.1.11 · Windows 10/11\n\nCtrl+Alt+T：显示 / 隐藏\nCtrl+Alt+S：区域截图\n拖动左侧“Snapline / 拖动移动”或收起的小入口可移动组件\n单击复制 · 双击预览 · 拖拽发送文件\n右键菜单：另存为、打开、画图编辑、移除\n\n数据仅保存在本机，无网络、无分析。\n灵感来源：alejandrobujan/tendedero (MIT)。\n本项目使用独立名称和原创图标，与原作者无关联。", "关于 Snapline"));
         menu.Items.Add("退出", null, (_, _) => app.Shutdown());
         var executable = Environment.ProcessPath!;
         tray = new Forms.NotifyIcon
@@ -326,10 +329,11 @@ internal sealed class SnaplineApplication : IDisposable
 
     private void Changed()
     {
+        groups.Prune(library.Items);
         shelf.Refresh(library.Items); Save();
         if (!shelf.IsRevealed && !capturing && !smoke && !busy) ShowHandle();
     }
-    private void Save() { settings.Items = library.Items.ToList(); store.Save(settings); }
+    private void Save() { settings.Items = library.Items.ToList(); settings.Groups = groups.Items.ToList(); store.Save(settings); }
     internal void Remove(string path) { library.Remove(path); Changed(); }
     internal void Hide()
     {
@@ -486,6 +490,47 @@ internal sealed class SnaplineApplication : IDisposable
         { shelf.ShowStatus("剪贴板忙碌，请重试"); }
     }
 
+    internal ScreenshotGroup? ImageGroupFor(string path) => groups.For(path);
+    internal ScreenshotGroup? ImageGroup(Guid id) => groups.Get(id);
+    internal bool CanGroup(string target, string[] paths) => groups.CanMerge(target, paths, library.Items);
+    internal Guid? GroupImages(string target, string[] paths)
+    {
+        library.Prune(); groups.Prune(library.Items);
+        var id = groups.Merge(target, paths, library.Items);
+        if (id == null) return null;
+        groupedDuringDrag = true; Changed();
+        shelf.ShowStatus($"已合成截图组 · {groups.Get(id.Value)!.Members.Count} 张");
+        return id;
+    }
+    internal void Ungroup(Guid id) { groups.Ungroup(id); Changed(); shelf.ShowStatus("已解散截图组，原图片保留"); }
+    internal void TakeOutImage(Guid id, string path) { groups.TakeOut(id, path); Changed(); }
+    internal void RefreshImages() => Changed();
+
+    internal DataObject? GroupCopyData(Guid id)
+    {
+        library.Prune(); groups.Prune(library.Items);
+        var group = groups.Get(id); Changed();
+        return group == null ? null : new DataObject(DataFormats.FileDrop, group.Members.ToArray());
+    }
+    internal void CopyGroup(Guid id)
+    {
+        try
+        {
+            var data = GroupCopyData(id);
+            if (data == null) { Changed(); shelf.ShowStatus("截图组已变更"); return; }
+            var count = data.GetData(DataFormats.FileDrop) is string[] files ? files.Length : 0;
+            Clipboard.SetDataObject(data, true); ownClipboardSequence = Native.GetClipboardSequenceNumber();
+            shelf.ShowStatus($"已复制整组 {count} 个图片文件");
+        }
+        catch (ExternalException) { shelf.ShowStatus("剪贴板忙碌，请重试"); }
+    }
+
+    internal void AddFixtureImage(string path)
+    {
+        if (!smoke || !ImageFiles.IsInside(path, store.InboxPath)) throw new InvalidOperationException("Only isolated generated images may be injected.");
+        AddImage(path, peek: false);
+    }
+
     internal void Preview(string path)
     {
         busy = true;
@@ -493,14 +538,18 @@ internal sealed class SnaplineApplication : IDisposable
         finally { busy = false; }
     }
 
-    internal void Drag(FrameworkElement source, string path)
+    internal void Drag(FrameworkElement source, string path) => DragImages(source, new[] { path });
+
+    internal void DragImages(FrameworkElement source, string[] paths)
     {
         if (busy || capturing) return;
-        busy = true; pinned = true;
+        if (paths.Length == 0 || paths.Any(p => !library.Items.Contains(p, StringComparer.OrdinalIgnoreCase) || !File.Exists(p)))
+        { Changed(); shelf.ShowStatus("图片已移动或不存在，拖拽已取消"); return; }
+        busy = true; pinned = true; groupedDuringDrag = false;
         try
         {
-            using var visual = new DragVisualSession(source, ImageIO.Load(path));
-            var data = new DataObject(DataFormats.FileDrop, new[] { path });
+            using var visual = new DragVisualSession(source, ImageIO.Load(paths[0]), paths.Length, keepSourceHitTarget: true);
+            var data = ImageDragData.Create(paths);
             GiveFeedbackEventHandler feedback = (_, e) =>
             {
                 visual.Preview.Feedback(e.Effects); visual.Preview.PlaceAt(Native.Cursor);
@@ -511,11 +560,12 @@ internal sealed class SnaplineApplication : IDisposable
             {
                 // Copy only: exporting never silently deletes the original capture.
                 var effect = DragDrop.DoDragDrop(source, data, DragDropEffects.Copy);
-                shelf.ShowStatus((effect & DragDropEffects.Copy) != 0 ? "图片已复制到目标，原图仍保留" : "已取消拖拽，图片仍在栏中");
+                if (!groupedDuringDrag)
+                    shelf.ShowStatus((effect & DragDropEffects.Copy) != 0 ? $"已复制 {paths.Length} 个图片文件，原图仍保留" : "已取消拖拽，图片仍在栏中");
             }
             finally { source.GiveFeedback -= feedback; }
         }
-        catch (Exception e) when (e is IOException or UnauthorizedAccessException or NotSupportedException or ExternalException)
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException or NotSupportedException or ExternalException or FileFormatException)
         { shelf.ShowStatus("拖拽未完成，图片仍在栏中"); }
         finally { busy = false; }
     }

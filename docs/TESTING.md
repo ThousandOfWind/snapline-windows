@@ -79,6 +79,16 @@ The report is `artifacts/e2e-report.json` (ignored by git, no private paths/cont
 Actual desktop screen capture fidelity, drag-to-other-app interoperability, Save As/painting,
 private markers beyond those covered, and multi-monitor/mixed-DPI combinations remain manual.
 
+## Screenshot group regression
+
+Core checks: valid image-on-image creation, unique ownership, group identity/order, append/merge/no nesting,
+self/foreign/malformed drop rejection, pruning and singleton dissolution, snapshots, ungroup/file preservation,
+old/corrupt settings and persistence round trip.
+Isolated GUI checks: session-tagged payload and standard FileDrop, collapsed group stack, expansion control,
+member views, append command, all-member copy/drag payload, collapse, take-out and ungroup.
+Payload generation is tested without reading/writing the existing clipboard. Command/binding checks do
+not prove a physical OLE drop or multi-file receipt in Explorer/chat apps.
+
 ## Manual (use only synthetic / non-sensitive fixtures)
 
 - [ ] Start portable EXE without installed .NET; confirm tray icon, no admin request.
@@ -88,6 +98,12 @@ private markers beyond those covered, and multi-monitor/mixed-DPI combinations r
 - [ ] Ctrl+Alt+T toggles an empty shelf; hide leaves no click-blocking overlay.
 - [ ] Add images from a test directory, single-click copies the full image; paste into Paint.
 - [ ] Double-click previews once without copying afterward; Esc closes preview.
+- [ ] Drag one Snapline test image onto another: highlight, drop, group stack/count, no external copy or lost image.
+- [ ] Drag a new test image / group onto a group; self-drop and Escape do not mutate membership.
+- [ ] Expand/collapse group; member copy/preview/export and move-out work; group card still exports whole group.
+- [ ] Drag group into an empty test Explorer folder and copy/paste group: all files arrive, originals stay; test chat apps separately.
+- [ ] Group persistence after normal restart; missing/deleted member shrinks group and a singleton becomes standalone.
+- [ ] Window cards cannot join image groups; external untagged FileDrop cannot mutate library metadata.
 - [ ] Drag to a temporary Explorer folder copies a file and preserves the source; floating thumbnail follows cursor without blocking the target.
 - [ ] Esc cancels image drag and restores source opacity/peg; original file and card remain.
 - [ ] Quickly drag outside card bounds, across monitors and back; no accidental copy click, lost gesture or dangling preview.

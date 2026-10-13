@@ -15,10 +15,12 @@ internal sealed class DragPreviewWindow : Window, IDisposable
 {
     private readonly DispatcherTimer follow = new() { Interval = TimeSpan.FromMilliseconds(16) };
     private readonly TextBlock hint;
+    private readonly int count;
     private bool disposed;
 
-    internal DragPreviewWindow(BitmapSource image)
+    internal DragPreviewWindow(BitmapSource image, int count = 1)
     {
+        this.count = Math.Max(1, count);
         Title = "Snapline Drag Preview";
         Width = 160; Height = 150;
         WindowStyle = WindowStyle.None; ResizeMode = ResizeMode.NoResize;
@@ -31,8 +33,15 @@ internal sealed class DragPreviewWindow : Window, IDisposable
             Effect = new DropShadowEffect { BlurRadius = 12, ShadowDepth = 4, Opacity = 0.23 },
             Child = new Image { Source = image, Stretch = Stretch.Uniform }
         };
-        visual.Children.Add(photo);
-        hint = new TextBlock { Text = "拖到目标以复制", FontSize = 10, Foreground = PaperStyle.Brush("#355748") };
+        var stack = new Grid { Height = 110 };
+        if (count > 1)
+        {
+            stack.Children.Add(new Border { Background = PaperStyle.Brush("#EADFF2"), BorderBrush = PaperStyle.Brush("#B8A4CC"),
+                BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(10), Margin = new Thickness(7, 7, 0, 0),
+                RenderTransform = new RotateTransform(3), RenderTransformOrigin = new Point(0.5, 0.1) });
+        }
+        stack.Children.Add(photo); visual.Children.Add(stack);
+        hint = new TextBlock { Text = count > 1 ? $"整组 {count} 张 · 拖动复制" : "拖到目标以复制", FontSize = 10, Foreground = PaperStyle.Brush("#355748") };
         visual.Children.Add(new Border { Child = hint, Background = PaperStyle.Brush("#F3F7EE"), CornerRadius = new CornerRadius(8),
             Padding = new Thickness(7, 4, 7, 4), Margin = new Thickness(0, 7, 0, 0), HorizontalAlignment = HorizontalAlignment.Center });
         Content = visual;
@@ -68,7 +77,7 @@ internal sealed class DragPreviewWindow : Window, IDisposable
     }
 
     internal void Feedback(DragDropEffects effect) => hint.Text =
-        (effect & DragDropEffects.Copy) != 0 ? "松开以复制图片" : "拖到目标以复制 · Esc 取消";
+        (effect & DragDropEffects.Copy) != 0 ? count > 1 ? $"松开复制整组 {count} 张" : "松开以复制图片" : "拖到图片合组 / 其他目标复制 · Esc 取消";
 
     internal bool DoesNotInterceptInput => Native.IsInputTransparent(this);
 
