@@ -27,7 +27,8 @@ internal sealed class ShelfWindow : Window
     private readonly TranslateTransform ropeOffset = new();
     private readonly SpringMotion ropeDip;
     private readonly Canvas ropeFeedback = new() { IsHitTestVisible = false };
-    private readonly Border emptyPeg;
+    private Border emptyPeg;
+    private HangingKind previewKind = HangingKind.Window;
     private readonly Border dropLabel;
     private bool nearRope;
     private bool ropeHighlighted;
@@ -120,7 +121,7 @@ internal sealed class ShelfWindow : Window
         };
         scroll.PreviewMouseWheel += (_, e) => { scroll.ScrollToHorizontalOffset(scroll.HorizontalOffset - e.Delta); e.Handled = true; };
         area.Children.Add(scroll);
-        emptyPeg = PaperStyle.Peg(14, 30); emptyPeg.Opacity = 0.9; emptyPeg.Tag = "WindowDropPeg";
+        emptyPeg = PaperStyle.Clip(HangingKind.Window); emptyPeg.Opacity = 0.9; emptyPeg.Tag = "WindowDropPeg";
         ropeFeedback.Children.Add(emptyPeg);
         dropLabel = new Border { Child = new TextBlock { Text = "松手挂上窗口", FontSize = 11, Foreground = Brush("#355748") },
             CornerRadius = new CornerRadius(9), Background = Brush("#FBE4C4"), Padding = new Thickness(9, 5, 9, 5),
@@ -237,6 +238,13 @@ internal sealed class ShelfWindow : Window
 
     internal void WindowMoveHint(bool moving, bool ready, HangingKind kind = HangingKind.Window)
     {
+        var theme = HangingTheme.For(kind);
+        if (kind != previewKind)
+        {
+            previewKind = kind; ropeFeedback.Children.Remove(emptyPeg); emptyPeg = PaperStyle.Clip(kind);
+            emptyPeg.Opacity = 0.9; emptyPeg.Tag = "WindowDropPeg"; ropeFeedback.Children.Insert(0, emptyPeg);
+        }
+        dropLabel.Background = Brush(theme.Header); dropLabel.BorderBrush = Brush(theme.Edge);
         brandGrip.Background = Brushes.Transparent;
         welcome.Visibility = moving ? Visibility.Hidden : Visibility.Visible;
         if (moving) status.Text = ready ? "松手挂上窗口 · 移开或 Esc 取消" : "将软件标题栏拖到整条晾衣绳，松手挂上";
@@ -246,7 +254,7 @@ internal sealed class ShelfWindow : Window
         {
             ropeHighlighted = active;
             ropeDip.To(active ? 4 : 0, impulse: active ? 16 : 0, frequency: 22, damping: 0.48, duration: 0.45);
-            rope.Stroke = Brush(active ? "#EAAF75" : "#8CAA9B"); rope.StrokeThickness = active ? 2 : 1.3;
+            rope.Stroke = Brush(active ? theme.Clip : "#8CAA9B"); rope.StrokeThickness = active ? 2 : 1.3;
         }
         ropeFeedback.Visibility = active ? Visibility.Visible : Visibility.Hidden;
         if (active)
@@ -275,22 +283,38 @@ internal sealed class ShelfWindow : Window
     {
         var card = new Grid { Width = 170, Height = 165, Margin = new Thickness(9, 15, 9, 0), Tag = "SnaplineCard",
             ToolTip = "暂存的软件窗口：" + window.Title + " · 点击取回原窗口" };
-        var content = new StackPanel { Margin = new Thickness(8, 10, 8, 5) };
-        content.Children.Add(new TextBlock { Text = "窗口暂存", FontSize = 10, Foreground = Brush("#658572"), HorizontalAlignment = HorizontalAlignment.Center });
-        content.Children.Add(window.Icon == null ? Brand.Icon(42) : new Image { Source = window.Icon, Width = 42, Height = 42, Margin = new Thickness(0, 8, 0, 7) });
-        content.Children.Add(new TextBlock { Text = window.Title, FontSize = 11, Foreground = Brush("#355748"), TextTrimming = TextTrimming.CharacterEllipsis,
-            TextAlignment = TextAlignment.Center, Margin = new Thickness(0, 6, 0, 6) });
-        content.Children.Add(new TextBlock { Text = "点击取回 ↗", FontSize = 11, Foreground = Brush("#547161"), TextAlignment = TextAlignment.Center });
-        var restore = new Button { Content = content, Cursor = Cursors.Hand, Background = Brush("#F3FBF8"), BorderBrush = Brush("#C3D7CB"),
-            BorderThickness = new Thickness(1), Padding = new Thickness(2), Margin = new Thickness(0, 14, 0, 3), Template = PaperStyle.Template() };
+        var theme = HangingTheme.For(window.Kind);
+        var content = new Grid();
+        content.RowDefinitions.Add(new RowDefinition { Height = new GridLength(25) });
+        content.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
+        var titleBar = new DockPanel { LastChildFill = true, Background = Brush(theme.Header), Margin = new Thickness(0), Tag = "WindowTitleBar" };
+        var controls = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(5, 0, 7, 0) };
+        controls.Children.Add(PaperStyle.Symbol("M0,0 L7,0", 7));
+        controls.Children.Add(new Border { Width = 7, Height = 6, BorderThickness = new Thickness(1), BorderBrush = Brush(theme.Ink), Margin = new Thickness(7, 0, 0, 0) });
+        DockPanel.SetDock(controls, Dock.Right); titleBar.Children.Add(controls);
+        titleBar.Children.Add(new TextBlock { Text = window.Kind == HangingKind.FolderWindow ? "文件夹" : "运行中窗口", FontSize = 10, Foreground = Brush(theme.Ink),
+            VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(8, 0, 0, 0) });
+        content.Children.Add(titleBar);
+        var body = new StackPanel { Margin = new Thickness(8, 8, 8, 5) };
+        body.Children.Add(window.Icon == null ? Brand.Icon(36) : new Image { Source = window.Icon, Width = 36, Height = 36 });
+        body.Children.Add(new TextBlock { Text = window.Title, FontSize = 11, Foreground = Brush(theme.Ink), TextTrimming = TextTrimming.CharacterEllipsis,
+            TextAlignment = TextAlignment.Center, Margin = new Thickness(0, 6, 0, 4) });
+        body.Children.Add(new TextBlock { Text = "点击取回 ↗", FontSize = 10, Foreground = Brush(theme.Ink), TextAlignment = TextAlignment.Center });
+        Grid.SetRow(body, 1); content.Children.Add(body);
+        var restore = new Button { Content = content, Cursor = Cursors.Hand, Background = Brush(theme.Paper), BorderBrush = Brush(theme.Edge),
+            BorderThickness = new Thickness(1.5), Padding = new Thickness(0), Margin = new Thickness(0, 14, 0, 3),
+            Template = PaperStyle.Template(radius: 7, hoverColor: window.Kind == HangingKind.FolderWindow ? "#FFF0C4" : "#E2EFF8",
+                pressedColor: window.Kind == HangingKind.FolderWindow ? "#F1D795" : "#C0D5E5"),
+            Tag = window.Kind == HangingKind.FolderWindow ? "FolderWindowFrame" : "AppWindowFrame" };
         System.Windows.Automation.AutomationProperties.SetName(restore, "取回窗口 " + window.Title);
         System.Windows.Automation.AutomationProperties.SetAutomationId(restore, "RestoreWindow");
         restore.Click += (_, _) => _ = controller.TakeWindowAsync(window.Identity);
         card.Children.Add(restore);
-        var peg = PaperStyle.Peg(); peg.Tag = "SnaplinePeg";
+        var peg = PaperStyle.Clip(window.Kind); peg.Tag = "SnaplinePeg";
+        peg.Resources["HangingKind"] = window.Kind;
         peg.HorizontalAlignment = HorizontalAlignment.Center; peg.VerticalAlignment = VerticalAlignment.Top;
         card.Children.Add(peg);
-        var movement = new HangingCard(card, peg, StableTilt(key)); hanging[key] = movement;
+        var movement = new HangingCard(card, peg, StableTilt(key), window.Kind); hanging[key] = movement;
         card.MouseEnter += (_, _) => movement.Hover(true); card.MouseLeave += (_, _) => movement.Hover(false);
         var menu = new ContextMenu();
         AddMenu(menu, "取回原窗口", () => _ = controller.TakeWindowAsync(window.Identity));
@@ -302,7 +326,9 @@ internal sealed class ShelfWindow : Window
     private FrameworkElement CreateCard(string path, System.Windows.Media.Imaging.BitmapSource image)
     {
         var card = new Grid { Width = 170, Height = 165, Margin = new Thickness(9, 15, 9, 0), ToolTip = System.IO.Path.GetFileName(path), Tag = "SnaplineCard" };
-        var peg = PaperStyle.Peg();
+        var theme = HangingTheme.For(HangingKind.Image);
+        var peg = PaperStyle.Clip(HangingKind.Image);
+        peg.Resources["HangingKind"] = HangingKind.Image;
         peg.HorizontalAlignment = HorizontalAlignment.Center;
         peg.VerticalAlignment = VerticalAlignment.Top;
         peg.Tag = "SnaplinePeg";
@@ -314,7 +340,7 @@ internal sealed class ShelfWindow : Window
         var frame = new Border
         {
             CornerRadius = new CornerRadius(12), Padding = new Thickness(6, 6, 6, 5), Margin = new Thickness(0, 14, 0, 3),
-            Background = Brush("#F3FBF8"), BorderBrush = Brush("#D0E1DC"), BorderThickness = new Thickness(1),
+            Background = Brush(theme.Paper), BorderBrush = Brush(theme.Edge), BorderThickness = new Thickness(1), Tag = "PhotoPaperFrame",
             Effect = new DropShadowEffect { BlurRadius = 10, ShadowDepth = 4, Opacity = 0.22 }
         };
         var body = new Grid();

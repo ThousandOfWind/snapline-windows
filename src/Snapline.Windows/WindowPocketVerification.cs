@@ -37,6 +37,20 @@ internal static class WindowPocketVerification
             await Task.Delay(200);
             check(Descendants(shelf).OfType<Button>().Any(b => System.Windows.Automation.AutomationProperties.GetAutomationId(b) == "RestoreWindow"),
                 "window card is rendered alongside screenshot cards");
+            check(Descendants(shelf).OfType<FrameworkElement>().Any(e => Equals(e.Tag, "AppWindowFrame")), "software window has a titlebar-style blue frame");
+            check(Descendants(shelf).OfType<Border>().Any(e => Equals(e.Tag, "SnaplinePeg") && e.Resources["HangingKind"] is HangingKind.Window),
+                "software window uses a distinct metal clip");
+            var realItem = service.Items.Single();
+            var folderVisual = realItem with { Kind = HangingKind.FolderWindow, Title = "Generated folder style", Identity = realItem.Identity with { Handle = long.MaxValue } };
+            shelf.RefreshWindows(new[] { realItem, folderVisual });
+            await Task.Delay(120);
+            check(Descendants(shelf).OfType<FrameworkElement>().Any(e => Equals(e.Tag, "FolderWindowFrame"))
+                && Descendants(shelf).OfType<FrameworkElement>().Any(e => Equals(e.Tag, "PhotoPaperFrame")),
+                "folder-tab and photo-paper frames coexist with software windows");
+            check(Descendants(shelf).OfType<Border>().Any(e => Equals(e.Tag, "SnaplinePeg") && e.Resources["HangingKind"] is HangingKind.FolderWindow),
+                "folder visual uses its brass clip rather than a wood peg");
+            if (styleEvidence != null) { shelf.FinishMotion(); shelf.SaveTestRender(styleEvidence); }
+            shelf.RefreshWindows(service.Items);
             var identity = service.Items.Single().Identity;
             var restoreControl = Descendants(shelf).OfType<Button>().Single(b => System.Windows.Automation.AutomationProperties.GetAutomationId(b) == "RestoreWindow");
             restoreControl.RaiseEvent(new RoutedEventArgs(System.Windows.Controls.Primitives.ButtonBase.ClickEvent));

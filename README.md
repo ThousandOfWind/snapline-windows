@@ -13,7 +13,7 @@
 
 **[下载 Windows x64 免安装版](https://github.com/ThousandOfWind/snapline-windows/releases/latest)** — 解压 ZIP 后运行 `Snapline.exe`。
 
-- Windows 10/11，当前本地预览版 **0.1.9**（尚未发布到 GitHub）。
+- Windows 10/11，当前版本 **0.1.10**。
 - 本地免安装程序：`artifacts\Snapline-win-x64\Snapline.exe`。
 - 可分发压缩包：`artifacts\Snapline-win-x64.zip`。解压后运行 `Snapline.exe`。
 - 自包含包不要求预先安装 .NET，不需要管理员权限。
@@ -27,6 +27,7 @@
   Windows 的复制/禁止放置光标保留，预览不拦截目标窗口；拖拽仍只复制文件，不删除源图。
 - 第一次移动时，全宽截图栏变成最多 960 DIP 的浮动栏，便于横向移动；透明样式和卡片横向滚动不变。
 - 拖动限制在显示器工作区内，避免移出屏幕；托盘菜单 **重置组件位置** 可恢复默认位置。
+- 悬挂物材质区分：图片是暖白相纸框＋木夹，软件窗口是蓝灰标题条框＋银色夹，识别到的资源管理器窗口是文件夹标签框＋黄铜夹。
 - Hover：卡片被轻碰后绕夹子来回摆动并自然停稳，不放大、不保持僵硬倾斜。
 - 收起入口的绳子和夹子固定，小照片与数量标签分别响应；按钮轻抬，按下压缩、松开回弹。
 - 使用保留当前位置/速度的有限弹簧曲线，快速进入/移出不会突跳；拖动时停止动效。
@@ -59,7 +60,7 @@
 重启恢复栏中记录。PNG/JPEG/BMP/GIF/TIFF 可用，WebP 取决于系统 WIC 解码器。
 动图只显示静态帧。图片文件被移动或删除后，栏中引用会自动清理。
 
-### 软件窗口暂存（整绳松手接收 + Explorer 兼容路径）
+### 软件窗口暂存（0.1.10：Explorer 兼容改进）
 
 1. 按住支持的软件**标题栏**拖动，Snapline 会自动展开晾衣绳，无需找收起的小照片入口。
 2. 把鼠标带到**绳子任意位置附近**：绳子轻轻下沉并亮起，出现空夹子和 **松手挂上窗口**。
@@ -73,7 +74,7 @@
 可在托盘关闭 **拖入软件窗口暂存**，或使用 **取回全部暂存窗口**。
 
 如果 File Explorer 仍然不能挂上：右键托盘 → **窗口暂存诊断…**，反馈里面的那一句提示即可，
-不用截图或提供你的文件列表。本功能支持自绘标题区 `HTCLIENT`、子窗口事件归一化，并增加
+不用截图或提供你的文件列表。0.1.10 支持自绘标题区 `HTCLIENT`、子窗口事件归一化，并增加
 标题区域＋窗口跟手位移的兜底识别；松手检测兼容事件早于按钮状态更新的短暂时序。
 真实 Explorer 验证仍未完成：空目录探针不能可靠定位新窗口，未检查既有私人窗口来代替验证。
 
@@ -141,7 +142,7 @@ cd snapline-windows
 ./scripts/Build.ps1
 
 # 普通程序正在运行时，输出到独立版本目录，不覆盖正在使用的 EXE
-./scripts/Build.ps1 -OutputDirectory artifacts/Snapline-0.1.9-win-x64
+./scripts/Build.ps1 -OutputDirectory artifacts/Snapline-0.1.10-win-x64
 
 # ARM64 可构建，尚未在 ARM64 机器上验证
 ./scripts/Build.ps1 -Runtime win-arm64
@@ -185,9 +186,10 @@ scripts/                构建、测试、原创图标生成
 tests/Snapline.Tests/    无第三方依赖的核心回归测试
 ```
 
-窗口暂存功能包括现代标题区/事件时序兼容、缺失事件的跟手兜底和无标题/路径的暂存诊断。
-类型化外观将由独立的后续功能 PR 提供。真实 Explorer 拖入待验收。
-本 PR 验证记录见 `docs/TEST-RESULTS-window-pocket-pr.md`。
+0.1.10 修正现代标题区与事件时序兼容逻辑，增加缺失事件的跟手兜底和无标题/路径的暂存诊断；
+增加语义化 `HangingTheme`，图片/软件/文件夹分别使用不同边框和夹子。真实 Explorer 拖入待验收。
+历史本地验证见 `docs/TEST-RESULTS-v0.1.10.md`；PR 分层结果见 `docs/TEST-RESULTS-typed-hanging-pr.md`。
+所有功能通过独立 PR 合并，贡献流程见 [AGENTS.md](AGENTS.md)。
 
 0.1.9 窗口暂存改为整条晾衣绳接收：标题栏拖动自动展开、靠近空夹子动画、松手直接挂上；
 不再要求等待或找 Logo，长时间按住绝不自动暂存。结果见 `docs/TEST-RESULTS-v0.1.9.md`。

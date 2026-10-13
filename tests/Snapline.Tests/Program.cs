@@ -66,6 +66,11 @@ try
     Check(!WindowDragFallbackPolicy.Accept(true, true, 500, 300, 550, 300, 45, 35, 45, 35, 1), "fallback excludes resizing");
     Check(!WindowDragFallbackPolicy.Accept(true, true, 500, 300, 500, 300, 45, 35, 0, 0, 1), "programmatic move without pointer motion excluded");
     Check(!WindowDragFallbackPolicy.Accept(true, false, 500, 300, 500, 300, 45, 35, 45, 35, 1), "fallback rechecks source identity");
+    var photoTheme = HangingTheme.For(HangingKind.Image); var appTheme = HangingTheme.For(HangingKind.Window);
+    var folderTheme = HangingTheme.For(HangingKind.FolderWindow);
+    Check(photoTheme.ClipShape == "wood" && appTheme.ClipShape == "metal" && folderTheme.ClipShape == "brass", "hanging kinds have different material/clip semantics");
+    Check(photoTheme.Edge != appTheme.Edge && appTheme.Edge != folderTheme.Edge, "kind-specific border palette differs");
+    Check(appTheme.Header != folderTheme.Header && photoTheme.Paper != appTheme.Paper, "window and folder header/paper styles are independent");
     var springStart = SpringCurve.Sample(4, 10, 0, 0, 16, 0.28);
     Check(Math.Abs(springStart.Position - 4) < 1e-8 && Math.Abs(springStart.Velocity - 10) < 1e-8, "spring preserves initial position and momentum");
     var firstSwing = SpringCurve.Sample(0, 72, 0, 0.1, 16, 0.28).Position;
