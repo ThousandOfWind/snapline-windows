@@ -33,9 +33,9 @@ closed/reused-handle protection, owned-dialog rejection, cancellation/release an
 0.1.9 additionally checks targets across the full rope, empty peg feedback, off-rope cancellation,
 readiness without animations, immediate release commit, long held-hover non-commit, and rejection of
 move-end while the left button is still held. The prior dwell-to-ready behavior is superseded.
-Window-pocket compatibility tests cover HTCLIENT/timeout caption-region policy, child-source normalization,
-pointer-follow fallback without move-start/end events and bounded release-state timing.
-Typed frame/clip materials will be validated in a separate feature PR.
+0.1.10 adds HTCLIENT/timeout caption-region policy, child-source normalization, pointer-follow fallback
+without move-start/end events, bounded release-state timing, and distinct photo/window/folder frame and clip materials.
+Folder style fixture is simulated: do not interpret it as real Explorer interoperability evidence.
 These in-process rendering/timeline checks are not an end-to-end user interaction test.
 As of 0.1.5, verification explicitly enables the per-app animation override, so intermediate-motion and hover
 assertions are not silently skipped when Windows animation is disabled. It separately verifies default
@@ -117,6 +117,7 @@ private markers beyond those covered, and multi-monitor/mixed-DPI combinations r
 - [ ] Test File Explorer/Chrome/Edge/VS Code custom titlebars, maximized/snapped windows, multiple monitors and different DPI; document unsupported cases.
 - [ ] File Explorer test must use a newly generated empty directory. Do not inspect the user's existing windows/file lists or enumerate their folder paths.
 - [ ] If a fixture window cannot be identified uniquely, mark BLOCKED; never use a generic Explorer title or kill the explorer.exe process.
+- [ ] Confirm photo/ordinary window/recognized folder window have distinguishable frame, header and clip silhouettes after hover/reset.
 - [ ] Diagnostic popup reports gate state only, no private title/path; no commit while held.
 - [ ] Elevated/system/dialog windows rejected, no elevation prompt or foreground-policy bypass.
 - [ ] Quit releases hotkeys/clipboard/WinEvent listeners and leaves no process or tray icon.

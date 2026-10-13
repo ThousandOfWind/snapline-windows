@@ -3,6 +3,7 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
 using System.Windows.Media.Animation;
+using Snapline.Core;
 
 namespace Snapline.Windows;
 
@@ -14,14 +15,16 @@ internal sealed class HangingCard
     private readonly TranslateTransform drop = new();
     private readonly RotateTransform swing;
     private readonly SpringMotion pendulum;
-    private readonly SolidColorBrush pegTint = PaperStyle.Brush("#EAAF75");
+    private readonly SolidColorBrush pegTint;
+    private readonly HangingTheme theme;
     private bool hovering;
     private bool dragging;
     private readonly double rest;
 
-    internal HangingCard(FrameworkElement card, Border peg, double rest)
+    internal HangingCard(FrameworkElement card, Border peg, double rest, HangingKind kind = HangingKind.Image)
     {
         this.card = card; this.peg = peg; this.rest = rest;
+        theme = HangingTheme.For(kind); pegTint = PaperStyle.Brush(theme.Clip);
         swing = new RotateTransform(rest);
         var group = new TransformGroup(); group.Children.Add(swing); group.Children.Add(drop);
         card.RenderTransform = group; card.RenderTransformOrigin = new Point(0.5, 0);
@@ -33,7 +36,7 @@ internal sealed class HangingCard
     {
         Motion.Reset(card, drop);
         pendulum.Reset(); hovering = false;
-        pegTint.BeginAnimation(SolidColorBrush.ColorProperty, null); pegTint.Color = (Color)ColorConverter.ConvertFromString("#EAAF75");
+        pegTint.BeginAnimation(SolidColorBrush.ColorProperty, null); pegTint.Color = (Color)ColorConverter.ConvertFromString(theme.Clip);
     }
 
     internal void Hang(int delayMs = 0)
@@ -51,7 +54,7 @@ internal sealed class HangingCard
         hovering = on;
         // Touch supplies momentum; gravity brings it back. No held tilt or enlargement.
         if (entering) pendulum.To(rest, impulse: rest < 0 ? -72 : 72, frequency: 16, damping: 0.28, duration: 1.1);
-        Tint(on ? "#F5C18D" : "#EAAF75");
+        Tint(on ? theme.Highlight : theme.Clip);
     }
 
     internal void SetDragging(bool on)

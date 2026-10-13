@@ -75,6 +75,12 @@ internal static class MotionVerification
             Check(hoverCard.Settled, "rapid hover interruption resets safely");
             Motion.Reduced = true; hoverCard.Hover(true);
             Check(hoverCard.Settled && !Motion.Enabled, "reduce motion wins over explicit animation override");
+            var metalPeg = PaperStyle.Clip(Snapline.Core.HangingKind.Window);
+            var metalCard = new HangingCard(new Grid(), metalPeg, 0, Snapline.Core.HangingKind.Window);
+            metalCard.Hover(true); metalCard.Settle();
+            Check(((SolidColorBrush)metalPeg.Background).Color == (Color)ColorConverter.ConvertFromString(Snapline.Core.HangingTheme.For(Snapline.Core.HangingKind.Window).Clip),
+                "metal clip motion reset retains its material instead of turning wood-colored");
+            Check(metalPeg.Width > PaperStyle.Clip(Snapline.Core.HangingKind.Image).Width, "window clip silhouette differs from narrow photo clothespin");
             host.Hide();
             var dragFixture = new Grid { Width = 170, Height = 165, Opacity = 1 };
             var dragPeg = PaperStyle.Peg(); dragPeg.Tag = "SnaplinePeg"; dragFixture.Children.Add(dragPeg);

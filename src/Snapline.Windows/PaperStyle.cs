@@ -1,4 +1,5 @@
 using System.Windows;
+using Snapline.Core;
 using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Media;
@@ -56,7 +57,8 @@ internal static class PaperStyle
 
     internal static HoverMotion? Feedback(Button button) => button.Resources["SnaplineHover"] as HoverMotion;
 
-    internal static ControlTemplate Template(bool transparent = false, double radius = 12)
+    internal static ControlTemplate Template(bool transparent = false, double radius = 12,
+        string hoverColor = "#E7F3E8", string pressedColor = "#A8D1BE")
     {
         var border = new FrameworkElementFactory(typeof(Border), "Paper");
         border.SetValue(Border.CornerRadiusProperty, new CornerRadius(radius));
@@ -72,13 +74,27 @@ internal static class PaperStyle
         if (!transparent)
         {
             var hover = new Trigger { Property = UIElement.IsMouseOverProperty, Value = true };
-            hover.Setters.Add(new Setter(Border.BackgroundProperty, Brush("#E7F3E8"), "Paper"));
+            hover.Setters.Add(new Setter(Border.BackgroundProperty, Brush(hoverColor), "Paper"));
             template.Triggers.Add(hover);
             var pressed = new Trigger { Property = System.Windows.Controls.Primitives.ButtonBase.IsPressedProperty, Value = true };
-            pressed.Setters.Add(new Setter(Border.BackgroundProperty, Brush("#A8D1BE"), "Paper"));
+            pressed.Setters.Add(new Setter(Border.BackgroundProperty, Brush(pressedColor), "Paper"));
             template.Triggers.Add(pressed);
         }
         return template;
+    }
+
+    internal static Border Clip(HangingKind kind)
+    {
+        if (kind == HangingKind.Image) return Peg();
+        var theme = HangingTheme.For(kind);
+        var details = new Grid { IsHitTestVisible = false };
+        var wire = new Path { Data = Geometry.Parse("M4,14 L4,6 C4,-1 14,-1 14,6 L14,14"),
+            Stroke = Brush(kind == HangingKind.Window ? "#EAF2F7" : "#FFF0C2"), StrokeThickness = 1.5,
+            Width = 18, Height = 18, Stretch = Stretch.Fill, VerticalAlignment = VerticalAlignment.Top, Margin = new Thickness(2, 0, 2, 0) };
+        details.Children.Add(wire);
+        details.Children.Add(new Border { Height = 8, Margin = new Thickness(1, 15, 1, 1), Background = Brush(kind == HangingKind.Window ? "#536E80" : "#856637"), CornerRadius = new CornerRadius(2) });
+        return new Border { Width = 22, Height = 25, CornerRadius = new CornerRadius(3), BorderThickness = new Thickness(1),
+            BorderBrush = Brush(theme.Edge), Background = Brush(theme.Clip), Child = details, IsHitTestVisible = false };
     }
 
     internal static Border Peg(double width = 12, double height = 27)
