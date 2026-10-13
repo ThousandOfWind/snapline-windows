@@ -110,6 +110,7 @@ try
     Check(loaded.Items.Count == 0 && loaded.WatchFolders.Count == 0 && loaded.Capacity == 100, "sanitize settings");
     restored.Clear();
     Check(File.Exists(a) && restored.Items.Count == 0, "clear preserves files");
+    GroupCoreChecks.Run(directory, Check);
     Console.WriteLine($"\n{passed} tests passed.");
     return 0;
 }
