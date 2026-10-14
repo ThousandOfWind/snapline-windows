@@ -1,7 +1,7 @@
 # Built-in image-editor feature PR validation
 
 Base main `0852cef`, branch `feat/image-editor`, Windows x64 / .NET 10.0.402, 2026-10-14.
-Scope: nine local tools (pen/highlight/arrow/rectangle/ellipse/text/crop/mosaic/opaque cover), color/width,
+Scope: nine local tools (pen/highlight/arrow/rectangle/ellipse/text/crop/mosaic/opaque cover), color/width/independent text size,
 zoom/fit, undo/redo, new flattened PNG export, edited-image copy callback, preview/context-menu entry.
 No rotation, output resampling/JPEG compression, vector-layer project format or existing-mark selection/move.
 
@@ -11,7 +11,7 @@ No rotation, output resampling/JPEG compression, vector-layer project format or 
 |---|---|---|
 | Core | PASS, 114 checks | 25 new editor state/crop/validation/history cases plus previous 89 |
 | WPF/E2E harness compilation | PASS, 0 warnings/errors | dotnet build |
-| Development isolated generated-data/native/UI/render | PASS, 140 checks | docs/design/image-editor-pr.json; artifacts/test-runs/20261014-103937-motion/ |
+| Development isolated generated-data/native/UI/render | PASS, 140 checks | docs/design/image-editor-pr.json; artifacts/test-runs/20261014-104839-motion/ |
 | Physical mouse/clipboard/native-dialog E2E | NOT_RUN | No keyboard/mouse/clipboard intervention authorized |
 | Large image/DPI/font/codec coverage | NOT_RUN | Manual checklist in TESTING.md |
 

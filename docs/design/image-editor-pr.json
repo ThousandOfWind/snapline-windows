@@ -7,7 +7,7 @@
     "interrupted exit cannot leave content outside view",
     "reduced motion renders immediately without delay",
     "reduced-motion conceal callback runs immediately",
-    "zero-rest-angle screenshot receives a perceptible pendulum impulse (peak 3.00)",
+    "zero-rest-angle screenshot receives a perceptible pendulum impulse (peak 3.07)",
     "card motion preserves physical size rather than zooming",
     "pendulum naturally reverses instead of holding a static hover tilt",
     "hover settles naturally even while pointer stays over card",
