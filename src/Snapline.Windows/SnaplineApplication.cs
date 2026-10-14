@@ -223,7 +223,7 @@ internal sealed class SnaplineApplication : IDisposable
         menu.Items.Add("从栏中移除全部（不删除文件）", null, (_, _) => { library.Clear(); groups.Clear(); Changed(); });
         menu.Items.Add(new Forms.ToolStripSeparator());
         menu.Items.Add("关于 Snapline", null, (_, _) => MessageBox.Show(
-            "Snapline 0.1.11 · Windows 10/11\n\nCtrl+Alt+T：显示 / 隐藏\nCtrl+Alt+S：区域截图\n拖动左侧“Snapline / 拖动移动”或收起的小入口可移动组件\n单击复制 · 双击预览 · 拖拽发送文件\n右键菜单：另存为、打开、画图编辑、移除\n\n数据仅保存在本机，无网络、无分析。\n灵感来源：alejandrobujan/tendedero (MIT)。\n本项目使用独立名称和原创图标，与原作者无关联。", "关于 Snapline"));
+            "Snapline 0.1.12 · Windows 10/11\n\nCtrl+Alt+T：显示 / 隐藏\nCtrl+Alt+S：区域截图\n拖动左侧“Snapline / 拖动移动”或收起的小入口可移动组件\n单击复制 · 双击预览 · 拖拽发送文件\n右键菜单：另存为、打开、画图编辑、移除\n\n数据仅保存在本机，无网络、无分析。\n灵感来源：alejandrobujan/tendedero (MIT)。\n本项目使用独立名称和原创图标，与原作者无关联。", "关于 Snapline"));
         menu.Items.Add("退出", null, (_, _) => app.Shutdown());
         var executable = Environment.ProcessPath!;
         tray = new Forms.NotifyIcon
@@ -376,7 +376,7 @@ internal sealed class SnaplineApplication : IDisposable
 
     private void Reveal(bool pin)
     {
-        if (capturing) return;
+        if (capturing || busy) return;
         pinned |= pin; // Background notifications must not unpin a deliberately opened shelf.
         awaySince = DateTime.MinValue;
         handle.Hide();
@@ -443,7 +443,7 @@ internal sealed class SnaplineApplication : IDisposable
 
     internal async Task CaptureAsync()
     {
-        if (capturing || smoke) return;
+        if (capturing || busy || smoke) return;
         capturing = true;
         showAfterCapture = true;
         handle.Hide();
@@ -533,9 +533,12 @@ internal sealed class SnaplineApplication : IDisposable
 
     internal void Preview(string path)
     {
+        if (busy || capturing) return;
+        var preview = new PreviewWindow(path);
         busy = true;
-        try { new PreviewWindow(path).ShowDialog(); }
+        try { preview.ShowDialog(); }
         finally { busy = false; }
+        if (preview.EditRequested) Edit(path);
     }
 
     internal void Drag(FrameworkElement source, string path) => DragImages(source, new[] { path });
@@ -584,8 +587,20 @@ internal sealed class SnaplineApplication : IDisposable
 
     internal void Edit(string path)
     {
-        try { Process.Start(new ProcessStartInfo("mspaint.exe") { ArgumentList = { path }, UseShellExecute = true }); Hide(); }
-        catch (Win32Exception) { Notify("无法打开画图，可右键选择“用默认应用打开”。"); }
+        if (busy || capturing) return;
+        busy = true; Hide();
+        try
+        {
+            var editor = new ImageEditorWindow(path, () => NewImagePath("Edited"), bitmap =>
+            {
+                Clipboard.SetImage(bitmap); ownClipboardSequence = Native.GetClipboardSequenceNumber();
+            });
+            editor.ShowDialog();
+            if (editor.ResultPath is { } saved) AddImage(saved, peek: false); // Original and group membership are untouched.
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException or NotSupportedException or ArgumentException or FileFormatException)
+        { Notify("无法打开这张图片进行编辑，请检查图片格式/大小或访问权限。"); }
+        finally { busy = false; Reveal(true); }
     }
 
     internal static void Open(string path) => Process.Start(new ProcessStartInfo(path) { UseShellExecute = true });

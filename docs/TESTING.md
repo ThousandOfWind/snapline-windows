@@ -89,6 +89,15 @@ member views, append command, all-member copy/drag payload, collapse, take-out a
 Payload generation is tested without reading/writing the existing clipboard. Command/binding checks do
 not prove a physical OLE drop or multi-file receipt in Explorer/chat apps.
 
+## Image editor regression
+
+Core: immutable marks, pixel crop normalization/clamp, dirty snapshots, undo/redo/branch reset,
+invalid coordinates/text/width/tiny shapes and bounded history/annotation limits.
+Isolated renderer/UI: all vector tools change pixels, full resolution, crop/mark alignment, opaque cover,
+mosaic blocks and no uncovering earlier redaction, new PNG/source-byte preservation, copy callback,
+controls, cancel draft, preview edit entry, default save and dirty state. Only generated images; no actual clipboard write.
+Direct model/control routing does not prove real mouse/touch drawing, native dialogs or every font/DPI/image format.
+
 ## Manual (use only synthetic / non-sensitive fixtures)
 
 - [ ] Start portable EXE without installed .NET; confirm tray icon, no admin request.
@@ -109,7 +118,13 @@ not prove a physical OLE drop or multi-file receipt in Explorer/chat apps.
 - [ ] Quickly drag outside card bounds, across monitors and back; no accidental copy click, lost gesture or dangling preview.
 - [ ] Default/reduced animation settings both retain drag thumbnail (it is functional feedback, not a decorative animation).
 - [ ] X and clear remove records, preserve all files; restart restores remaining cards.
-- [ ] Edit a watched fixture with Paint; thumbnail refreshes and no locked-file errors occur.
+- [ ] Open generated screenshot from right-menu and preview edit button; tools/keyboard shortcuts work without an external app.
+- [ ] Pen/highlight/arrow/box/ellipse/text at multiple zoom/DPI levels; reverse crop, tiny crop, Esc and undo/redo align correctly.
+- [ ] Copy edited result into a permitted test target and save a new PNG; original hash and old group members unchanged.
+- [ ] Save As existing/source filename is refused; unwritable destination fails without altering source or reporting saved.
+- [ ] Close with unsaved edits: confirm/discard/cancel behavior; clipboard copy alone is not a saved file.
+- [ ] Opaque cover flattens only edited output; do not claim mosaic is guaranteed secret redaction, share only edited copy.
+- [ ] Large images, GIF/static-frame and WebP codecs, transparent inputs and system fonts; log limits/unsupported formats.
 - [ ] Ctrl+Alt+S selects a synthetic desktop area; reverse drag, tiny selection, Esc cancel.
 - [ ] Clipboard is off by default. Opt in, copy synthetic bitmap and see one new card.
 - [ ] Copy from shelf while opted in; no duplicate. Copy mixed text/file data; no new card.

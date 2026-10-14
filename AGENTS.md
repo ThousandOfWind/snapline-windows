@@ -33,6 +33,7 @@
 - Preserve transparent surroundings, rope/pegs, independent movable component positions and user-controlled hiding.
 - Software-window stashing commits only on release over the rope. Holding/hovering, resize, move-away or Escape must not minimize a window.
 - Restore the same living window instance. Keep taskbar recovery available; never close/kill/relaunch an app or persist HWNDs/title/content.
+- Image edits export flattened PNG copies, never silently overwrite an original/existing file. Preserve original group members; copy is not a disk save. Do not claim mosaic guarantees secrecy; recommend opaque cover for sensitive areas.
 - No account/network/analytics in the app. No Windows animation/security-setting changes; respect reduced motion unless the user explicitly enables the per-app override.
 - Keep the MIT/upstream notices and independent Snapline name/artwork. Do not imply upstream endorsement.
 

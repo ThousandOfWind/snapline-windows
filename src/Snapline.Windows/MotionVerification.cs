@@ -229,6 +229,7 @@ internal static class MotionVerification
             handle.HoverFeedback.Press(false);
             Check(handle.HoverFeedback.AtRest && handle.CountFeedback.AtRest, "drag suspension cancels motion and suppresses release bounce");
             handle.HoverFeedback.Suspend(false); handle.CountFeedback.Suspend(false);
+            await EditorVerification.RunAsync(output, Check);
             Motion.OverrideSystem = false;
             Check(Motion.Enabled == SystemParameters.ClientAreaAnimation, "default behavior still respects Windows motion setting");
         }
