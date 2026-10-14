@@ -38,17 +38,19 @@ internal sealed partial class ShelfWindow
     private FrameworkElement CreateGroupCard(ScreenshotGroup group, string key)
     {
         var theme = HangingTheme.For(HangingKind.ImageGroup);
-        var card = new Grid { Width = 182, Height = 165, Margin = new Thickness(9, 15, 9, 0), Tag = "SnaplineCard",
+        ImageIO.TryLoad(group.Members[0], out var cover);
+        var size = cover == null ? new ImageCardSize(170, 100) : ImageCardSize.Fit(cover.PixelWidth, cover.PixelHeight, 170, 118);
+        var card = new Grid { Width = Math.Max(size.Width + 3, 70) + 12, Height = size.Height + 45, Margin = new Thickness(9, 15, 9, 0), Tag = "SnaplineCard",
             ToolTip = $"截图组 · {group.Members.Count} 张 · 点击展开，拖动整组复制" };
         card.Children.Add(new Border { CornerRadius = new CornerRadius(10), Background = Brush("#EADFF2"), BorderBrush = Brush(theme.Edge),
             BorderThickness = new Thickness(1), Margin = new Thickness(14, 20, 0, 2), RenderTransform = new RotateTransform(4), RenderTransformOrigin = new Point(0.5, 0.1), IsHitTestVisible = false });
         card.Children.Add(new Border { CornerRadius = new CornerRadius(10), Background = Brush("#F5EDFA"), BorderBrush = Brush(theme.Edge),
             BorderThickness = new Thickness(1), Margin = new Thickness(7, 17, 7, 4), RenderTransform = new RotateTransform(-3), RenderTransformOrigin = new Point(0.5, 0.1), IsHitTestVisible = false });
         var content = new Grid();
-        content.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
+        content.RowDefinitions.Add(new RowDefinition { Height = new GridLength(size.Height) });
         content.RowDefinitions.Add(new RowDefinition { Height = new GridLength(28) });
-        var thumbnails = new Grid();
-        if (ImageIO.TryLoad(group.Members[0], out var cover)) thumbnails.Children.Add(new Image { Source = cover, Stretch = Stretch.Uniform, Margin = new Thickness(5) });
+        var thumbnails = new Grid { Width = size.Width, Height = size.Height };
+        if (cover != null) thumbnails.Children.Add(new Image { Source = cover, Width = size.Width, Height = size.Height, Stretch = Stretch.Fill, Tag = "GroupCoverPixels" });
         thumbnails.Children.Add(new Border { Background = Brush(theme.Header), CornerRadius = new CornerRadius(7), Padding = new Thickness(7, 3, 7, 3),
             HorizontalAlignment = HorizontalAlignment.Right, VerticalAlignment = VerticalAlignment.Top, Margin = new Thickness(4),
             Child = new TextBlock { Text = $"{group.Members.Count} 张", Foreground = Brush(theme.Ink), FontSize = 11 } });
@@ -63,7 +65,8 @@ internal sealed partial class ShelfWindow
         actions.Children.Add(new TextBlock { Text = "截图组", FontSize = 11, Foreground = Brush(theme.Ink), VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(3, 0, 4, 0) });
         content.Children.Add(actions);
         var frame = new Border { Child = content, CornerRadius = new CornerRadius(12), Background = Brush(theme.Paper), BorderBrush = Brush(theme.Edge),
-            BorderThickness = new Thickness(1.5), Padding = new Thickness(5), Margin = new Thickness(0, 14, 12, 3), Tag = "ScreenshotGroupFrame",
+            BorderThickness = new Thickness(1.5), Padding = new Thickness(0), Margin = new Thickness(0, 14, 12, 0),
+            Width = size.Width + 3, Height = size.Height + 31, HorizontalAlignment = HorizontalAlignment.Left, VerticalAlignment = VerticalAlignment.Top, Tag = "ScreenshotGroupFrame",
             Effect = new DropShadowEffect { BlurRadius = 9, ShadowDepth = 3, Opacity = 0.2 } };
         card.Children.Add(frame);
         var peg = PaperStyle.Clip(HangingKind.ImageGroup); peg.Tag = "SnaplinePeg"; peg.Resources["HangingKind"] = HangingKind.ImageGroup;
@@ -113,23 +116,8 @@ internal sealed partial class ShelfWindow
 
     private void BindImageActions(FrameworkElement card, Func<string[]> selection, HangingCard movement, Action click, Action doubleClick)
     {
-        System.Drawing.Point start = default;
-        var dragging = false; var armed = false;
-        DispatcherTimer? clickTimer = null;
-        card.MouseLeftButtonDown += (_, e) =>
+        _ = new ImageCardInput(card, click, doubleClick, () =>
         {
-            if (IsButtonAncestor(e.OriginalSource as DependencyObject)) return;
-            start = Native.Cursor; dragging = false; armed = e.ClickCount != 2;
-            if (e.ClickCount == 2) { clickTimer?.Stop(); doubleClick(); e.Handled = true; }
-            else card.CaptureMouse();
-        };
-        card.MouseMove += (_, e) =>
-        {
-            if (!armed || e.LeftButton != MouseButtonState.Pressed || dragging) return;
-            var current = Native.Cursor; var dpi = Native.Scale(Forms.Screen.FromPoint(current));
-            if (Math.Abs(current.X - start.X) < SystemParameters.MinimumHorizontalDragDistance * dpi
-                && Math.Abs(current.Y - start.Y) < SystemParameters.MinimumVerticalDragDistance * dpi) return;
-            dragging = true; armed = false; clickTimer?.Stop(); card.ReleaseMouseCapture();
             cardDragging = true; movement.SetDragging(true);
             try { controller.DragImages(card, selection()); }
             finally
@@ -137,14 +125,6 @@ internal sealed partial class ShelfWindow
                 movement.SetDragging(false); cardDragging = false;
                 if (deferredPaths != null) { var paths = deferredPaths; deferredPaths = null; Refresh(paths); }
             }
-        };
-        card.MouseLeftButtonUp += (_, e) =>
-        {
-            if (!armed || dragging || e.Handled || IsButtonAncestor(e.OriginalSource as DependencyObject)) return;
-            armed = false; card.ReleaseMouseCapture(); clickTimer?.Stop();
-            clickTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(Forms.SystemInformation.DoubleClickTime) };
-            clickTimer.Tick += (_, _) => { clickTimer.Stop(); click(); }; clickTimer.Start();
-        };
-        card.LostMouseCapture += (_, _) => armed = false;
+        });
     }
 }

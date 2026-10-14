@@ -196,6 +196,7 @@ internal static class MotionVerification
                 Motion.Reduced = true; shelf.FinishMotion(); shelf.Conceal();
                 Check(!shelf.IsVisible, "reduced-motion actual shelf conceals immediately");
                 await GroupVerification.RunAsync(app, shelf, data, output, Check);
+                await CardInteractionVerification.RunAsync(shelf, data, output, Check);
             }
             finally { app.Dispose(); Directory.Delete(data, true); }
 

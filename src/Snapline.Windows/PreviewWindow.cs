@@ -11,11 +11,14 @@ internal sealed class PreviewWindow : Window
     internal PreviewWindow(string path)
     {
         Title = System.IO.Path.GetFileName(path) + " — Snapline";
-        Width = 1000; Height = 720;
+        SizeToContent = SizeToContent.WidthAndHeight;
         MaxWidth = SystemParameters.WorkArea.Width; MaxHeight = SystemParameters.WorkArea.Height;
         WindowStartupLocation = WindowStartupLocation.CenterScreen;
         Background = new SolidColorBrush(Color.FromRgb(24, 31, 42));
-        var image = new Image { Source = ImageIO.Load(path, 0), Stretch = Stretch.Uniform, Margin = new Thickness(18) };
+        var bitmap = ImageIO.Load(path, 0);
+        var fit = Snapline.Core.ImageCardSize.Fit(bitmap.PixelWidth, bitmap.PixelHeight,
+            System.Math.Max(100, SystemParameters.WorkArea.Width - 40), System.Math.Max(100, SystemParameters.WorkArea.Height - 125));
+        var image = new Image { Source = bitmap, Width = fit.Width, Height = fit.Height, Stretch = Stretch.Fill, Margin = new Thickness(0), Tag = "PreviewPixels" };
         var panel = new DockPanel();
         var edit = PaperStyle.Action("编辑 / 标注", "M0,14 L3,7 12,0 16,4 7,13 Z", "打开内置编辑器，保存为副本，不覆盖原图", true,
             () => { EditRequested = true; Close(); });
