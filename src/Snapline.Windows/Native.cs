@@ -67,6 +67,14 @@ internal static class Native
         get { GetCursorPos(out var p); return new System.Drawing.Point(p.X, p.Y); }
     }
 
+    [DllImport("user32.dll")] private static extern int GetSystemMetricsForDpi(int metric, uint dpi);
+    internal static System.Windows.Size DoubleClickDistance(double scale)
+    {
+        var dpi = (uint)Math.Round(96 * scale);
+        return new System.Windows.Size(Math.Max(1, GetSystemMetricsForDpi(36, dpi) / 2.0),
+            Math.Max(1, GetSystemMetricsForDpi(37, dpi) / 2.0));
+    }
+
     internal static double Scale(Forms.Screen screen)
     {
         var p = new Point { X = screen.Bounds.Left + 1, Y = screen.Bounds.Top + 1 };

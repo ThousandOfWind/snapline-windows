@@ -64,7 +64,7 @@ internal static class Program
             Thread.Sleep(1000);
             var card = Find(AutomationElement.FromHandle(Window("Snapline")), "E2E-fixture.png")!;
             var rect = card.Current.BoundingRectangle;
-            Native.Click((int)(rect.Left + rect.Width / 2), (int)(rect.Top + rect.Height / 2) - 45);
+            Native.Click((int)(rect.Left + rect.Width / 2), (int)(rect.Top + rect.Height / 2));
             Wait(() => Find(AutomationElement.FromHandle(Window("Snapline")), "已复制图片") != null, "single click reports successful copy before reading test clipboard");
             clipboardOwned = true;
             Wait(() => OwnImageDimensions(640, 360), "physical single click copies full-resolution generated image");
@@ -78,7 +78,7 @@ internal static class Program
             Check(Native.HitTest(Window("Snapline"), shelfRect.Left + 60, shelfRect.Top + 110) == -1,
                 "empty transparent area does not intercept pointer hit-testing");
 
-            Native.DoubleClick((int)(rect.Left + rect.Width / 2), (int)(rect.Top + rect.Height / 2) - 45);
+            Native.DoubleClick((int)(rect.Left + rect.Width / 2), (int)(rect.Top + rect.Height / 2));
             Wait(() => Window("E2E-fixture.png — Snapline") != IntPtr.Zero, "physical double click opens preview");
             var preview = AutomationElement.FromHandle(Window("E2E-fixture.png — Snapline"));
             ((WindowPattern)preview.GetCurrentPattern(WindowPattern.Pattern)).Close();
@@ -110,7 +110,7 @@ internal static class Program
                 "capture stays visible beyond old timeout even over fullscreen fixture");
             var capturedLabel = Find(AutomationElement.FromHandle(Window("Snapline")), Path.GetFileName(saved))!;
             var capturedRect = capturedLabel.Current.BoundingRectangle;
-            Native.Click((int)(capturedRect.Left + capturedRect.Width / 2), (int)(capturedRect.Top + capturedRect.Height / 2) - 45);
+            Native.Click((int)(capturedRect.Left + capturedRect.Width / 2), (int)(capturedRect.Top + capturedRect.Height / 2));
             Wait(() => Find(AutomationElement.FromHandle(Window("Snapline")), "已复制图片") != null,
                 "captured card remains visibly clickable after waiting");
             for (var cycle = 0; cycle < 5; cycle++)
@@ -206,7 +206,7 @@ internal static class Program
             var newestName = Path.GetFileName(Items().Last());
             var newest = Find(AutomationElement.FromHandle(Window("Snapline")), newestName)!;
             var newestRect = newest.Current.BoundingRectangle;
-            Native.Click((int)(newestRect.Left + newestRect.Width / 2), (int)(newestRect.Top + newestRect.Height / 2) - 45);
+            Native.Click((int)(newestRect.Left + newestRect.Width / 2), (int)(newestRect.Top + newestRect.Height / 2));
             Wait(() => Find(AutomationElement.FromHandle(Window("Snapline")), "已复制图片") != null, "copy remains usable while clipboard monitoring enabled");
             Thread.Sleep(800);
             Check(Items().Length == 2, "own copy is not recaptured");
@@ -229,7 +229,7 @@ internal static class Program
             Thread.Sleep(1200);
             var dragLabel = Find(AutomationElement.FromHandle(Window("Snapline")), Path.GetFileName(remaining))!;
             var dragRect = dragLabel.Current.BoundingRectangle;
-            Native.BeginDrag((int)(dragRect.Left + dragRect.Width / 2), (int)(dragRect.Top + dragRect.Height / 2) - 45);
+            Native.BeginDrag((int)(dragRect.Left + dragRect.Width / 2), (int)(dragRect.Top + dragRect.Height / 2));
             Wait(() => Window("Snapline Drag Preview") != IntPtr.Zero, "physical image drag displays floating photo preview");
             var previewBefore = Native.Bounds(Window("Snapline Drag Preview"));
             Native.Move(Native.Cursor.X + 80, Native.Cursor.Y + 60);

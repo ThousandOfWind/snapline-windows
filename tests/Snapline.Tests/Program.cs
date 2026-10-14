@@ -112,6 +112,7 @@ try
     Check(File.Exists(a) && restored.Items.Count == 0, "clear preserves files");
     GroupCoreChecks.Run(directory, Check);
     EditorCoreChecks.Run(Check);
+    CardInteractionChecks.Run(Check);
     Console.WriteLine($"\n{passed} tests passed.");
     return 0;
 }

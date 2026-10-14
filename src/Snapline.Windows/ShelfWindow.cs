@@ -326,7 +326,9 @@ internal sealed partial class ShelfWindow : Window
 
     private FrameworkElement CreateCard(string path, System.Windows.Media.Imaging.BitmapSource image)
     {
-        var card = new Grid { Width = 170, Height = 165, Margin = new Thickness(9, 15, 9, 0), ToolTip = System.IO.Path.GetFileName(path), Tag = "SnaplineCard" };
+        var size = ImageCardSize.Fit(image.PixelWidth, image.PixelHeight, 170, 148);
+        var card = new Grid { Width = Math.Max(size.Width + 2, 24), Height = size.Height + 16, Margin = new Thickness(9, 15, 9, 0),
+            ToolTip = System.IO.Path.GetFileName(path), Tag = "SnaplineCard" };
         var theme = HangingTheme.For(HangingKind.Image);
         var peg = PaperStyle.Clip(HangingKind.Image);
         peg.Resources["HangingKind"] = HangingKind.Image;
@@ -340,24 +342,15 @@ internal sealed partial class ShelfWindow : Window
         card.MouseLeave += (_, _) => movement.Hover(false);
         var frame = new Border
         {
-            CornerRadius = new CornerRadius(12), Padding = new Thickness(6, 6, 6, 5), Margin = new Thickness(0, 14, 0, 3),
-            Background = Brush(theme.Paper), BorderBrush = Brush(theme.Edge), BorderThickness = new Thickness(1), Tag = "PhotoPaperFrame",
+            CornerRadius = new CornerRadius(4), Padding = new Thickness(0), Margin = new Thickness(0, 14, 0, 0),
+            Width = size.Width + 2, Height = size.Height + 2, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Top,
+            Background = Brushes.Transparent, BorderBrush = Brush(theme.Edge), BorderThickness = new Thickness(1), Tag = "PhotoPaperFrame",
             Effect = new DropShadowEffect { BlurRadius = 10, ShadowDepth = 4, Opacity = 0.22 }
         };
-        var body = new Grid();
-        body.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
-        body.RowDefinitions.Add(new RowDefinition { Height = new GridLength(23) });
-        body.Children.Add(new Border
-        {
-            Background = Brush("#DDE4E8"), CornerRadius = new CornerRadius(4), ClipToBounds = true,
-            Child = new Image { Source = image, Stretch = Stretch.Uniform }
-        });
-        var name = new TextBlock
-        {
-            Text = System.IO.Path.GetFileName(path), FontSize = 10, Foreground = Brush("#445460"),
-            TextTrimming = TextTrimming.CharacterEllipsis, VerticalAlignment = VerticalAlignment.Center
-        };
-        Grid.SetRow(name, 1); body.Children.Add(name); frame.Child = body; card.Children.Add(frame);
+        var picture = new Image { Source = image, Width = size.Width, Height = size.Height, Stretch = Stretch.Fill, Tag = "ScreenshotPixels" };
+        System.Windows.Automation.AutomationProperties.SetName(picture, System.IO.Path.GetFileName(path));
+        System.Windows.Automation.AutomationProperties.SetAutomationId(picture, "ScreenshotImage");
+        frame.Child = picture; card.Children.Add(frame);
         card.Children.Add(peg);
         var remove = new Button
         {

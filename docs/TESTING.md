@@ -89,6 +89,15 @@ member views, append command, all-member copy/drag payload, collapse, take-out a
 Payload generation is tested without reading/writing the existing clipboard. Command/binding checks do
 not prove a physical OLE drop or multi-file receipt in Explorer/chat apps.
 
+## Card interaction / no-fill regression
+
+Core tests classify single/double/drag/cancel without WPF ClickCount; double only commits after the second release,
+never leaks delayed copy, and respects system timing/distance. Layout tests preserve landscape/portrait/square aspect.
+Isolated binding checks drive the same classifier and actual WPF preview routed-event handlers using synthetic clocks/
+points with native mouse capture disabled, and open a generated-image preview. No physical input or clipboard access.
+Pixel-view tests require zero padding/margin, exact aspect ratio and no filename footer. Group cover retains action controls
+but not image inset/letterbox fill. These checks are not a substitute for physical double-click timing and native capture.
+
 ## Image editor regression
 
 Core: immutable marks, pixel crop normalization/clamp, dirty snapshots, undo/redo/branch reset,
@@ -106,7 +115,9 @@ Direct model/control routing does not prove real mouse/touch drawing, native dia
 - [ ] Drag collapsed entry while hovered and click paper buttons near edges; no flicker, stuck scale or saved-position drift.
 - [ ] Ctrl+Alt+T toggles an empty shelf; hide leaves no click-blocking overlay.
 - [ ] Add images from a test directory, single-click copies the full image; paste into Paint.
-- [ ] Double-click previews once without copying afterward; Esc closes preview.
+- [ ] Double-click previews once without copying afterward; Esc closes preview. Test quick/slow clicks, jitter, hover swing, drag on second press, lost capture and different DPI.
+- [ ] Wide, tall, square and very thin screenshots fit their own aspect ratio with no gray/white synthetic fill; source contents/pixels not cropped.
+- [ ] Group covers have no inset padding; expanded images share the same click/drag behavior; controls/accessibility labels remain available.
 - [ ] Drag one Snapline test image onto another: highlight, drop, group stack/count, no external copy or lost image.
 - [ ] Drag a new test image / group onto a group; self-drop and Escape do not mutate membership.
 - [ ] Expand/collapse group; member copy/preview/export and move-out work; group card still exports whole group.
