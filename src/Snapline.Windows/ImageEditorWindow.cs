@@ -26,6 +26,7 @@ internal sealed class ImageEditorWindow : Window
     private readonly TextBlock status = new();
     private readonly TextBox text = new() { Text = "标注文字", Width = 160, MaxLength = 500, Margin = new Thickness(5), VerticalContentAlignment = VerticalAlignment.Center };
     private readonly ComboBox colors = new() { Width = 82, Margin = new Thickness(5) };
+    private readonly ComboBox fontSize = new() { Width = 64, Margin = new Thickness(5) };
     private readonly Slider thickness = new() { Minimum = 1, Maximum = 36, Value = 4, Width = 90, Margin = new Thickness(5) };
     private readonly Slider zoom = new() { Minimum = 0.1, Maximum = 3, Value = 1, Width = 110, Margin = new Thickness(5) };
     private readonly Dictionary<EditorTool, Button> tools = [];
@@ -64,8 +65,12 @@ internal sealed class ImageEditorWindow : Window
             ("绿色",0xFF46A980u),("蓝色",0xFF4D89CFu),("黑色",0xFF182D30u),("白色",0xFFFFFFFFu) })
             colors.Items.Add(new ComboBoxItem { Content = name, Tag = color });
         colors.SelectedIndex = 0;
-        options.Children.Add(colors); options.Children.Add(new TextBlock { Text = "线宽 / 字号", VerticalAlignment = VerticalAlignment.Center });
-        options.Children.Add(thickness); options.Children.Add(text);
+        options.Children.Add(colors); options.Children.Add(new TextBlock { Text = "线宽", VerticalAlignment = VerticalAlignment.Center });
+        options.Children.Add(thickness);
+        foreach (var size in new[] { 18, 24, 32, 48, 64, 96, 144, 192 }) fontSize.Items.Add(size);
+        fontSize.SelectedItem = 32;
+        options.Children.Add(new TextBlock { Text = "字号", VerticalAlignment = VerticalAlignment.Center });
+        options.Children.Add(fontSize); options.Children.Add(text);
         undo = MakeButton("撤销", () => { CancelDraft(); if (Document.Undo()) RefreshImage(); });
         redo = MakeButton("重做", () => { CancelDraft(); if (Document.Redo()) RefreshImage(); });
         options.Children.Add(undo); options.Children.Add(redo);
@@ -101,12 +106,13 @@ internal sealed class ImageEditorWindow : Window
         CancelDraft(); tool = selected;
         foreach (var item in tools) item.Value.Background = PaperStyle.Brush(item.Key == selected ? "#D8EBDE" : "#F9FCF6");
         colors.IsEnabled = selected is not (EditorTool.Crop or EditorTool.Mosaic);
-        text.IsEnabled = selected == EditorTool.Text;
+        text.IsEnabled = selected == EditorTool.Text; fontSize.IsEnabled = selected == EditorTool.Text;
+        thickness.IsEnabled = selected is not (EditorTool.Text or EditorTool.Crop);
         if (selected == EditorTool.Obscure) colors.SelectedIndex = 5;
         surface.Cursor = selected == EditorTool.Text ? Cursors.IBeam : Cursors.Cross;
         status.Text = selected switch
         {
-            EditorTool.Text => "输入右侧文字后，点击图片放置；字号随线宽调整。",
+            EditorTool.Text => "输入文字、选择字号后，点击图片放置。",
             EditorTool.Crop => "拖出裁剪区域，松手应用；Esc 取消，撤销可恢复完整画面。",
             EditorTool.Mosaic => "拖出区域进行像素化；马赛克不保证信息不可推断，敏感内容请用不透明遮挡。",
             EditorTool.Obscure => "拖出区域进行不透明遮挡；导出结果为扁平 PNG，原图仍保留。",
@@ -123,7 +129,7 @@ internal sealed class ImageEditorWindow : Window
     private void Begin(object sender, MouseButtonEventArgs e)
     {
         var p = PointAt(e);
-        if (tool == EditorTool.Text) { Commit(new ImageMark(MarkTool.Text, new[] { p }, Argb, thickness.Value, text.Text)); return; }
+        if (tool == EditorTool.Text) { Commit(new ImageMark(MarkTool.Text, new[] { p }, Argb, ((fontSize.SelectedItem is int size ? size : 32) - 12) / 5.0, text.Text)); return; }
         drawing = true; points.Clear(); points.Add(p); surface.CaptureMouse(); e.Handled = true;
     }
     private void Move(object sender, MouseEventArgs e)
