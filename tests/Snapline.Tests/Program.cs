@@ -111,6 +111,7 @@ try
     restored.Clear();
     Check(File.Exists(a) && restored.Items.Count == 0, "clear preserves files");
     GroupCoreChecks.Run(directory, Check);
+    EditorCoreChecks.Run(Check);
     Console.WriteLine($"\n{passed} tests passed.");
     return 0;
 }

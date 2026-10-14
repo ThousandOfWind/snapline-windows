@@ -376,7 +376,7 @@ internal sealed partial class ShelfWindow : Window
         AddMenu(menu, "复制图片", () => controller.Copy(path));
         AddMenu(menu, "预览", () => controller.Preview(path));
         AddMenu(menu, "用默认应用打开", () => SnaplineApplication.Open(path));
-        AddMenu(menu, "用画图编辑", () => controller.Edit(path));
+        AddMenu(menu, "编辑 / 标注…", () => controller.Edit(path));
         AddMenu(menu, "另存副本…", () => controller.SaveAs(path));
         AddMenu(menu, "在资源管理器中显示", () => SnaplineApplication.RevealFile(path));
         menu.Items.Add(new Separator());
